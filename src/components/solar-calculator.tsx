@@ -53,6 +53,7 @@ interface SystemParams {
   systemVoltage: number;
   backupDays: number;
   panelWattage: number;
+  batteryType: "lead-acid" | "lithium";
   batteryCapacity: number;
   batteryVoltage: number;
   batteryDoD: number;
@@ -80,6 +81,7 @@ interface CalculationResults {
   chargeControllerCurrent: number;
   recommendedController: number;
   controllerType: string;
+  batteryTypeName: string;
   panelCost: number;
   batteryCost: number;
   inverterCost: number;
@@ -133,6 +135,7 @@ export default function SolarCalculator() {
     systemVoltage: 48,
     backupDays: 2,
     panelWattage: 550,
+    batteryType: "lead-acid",
     batteryCapacity: 200,
     batteryVoltage: 12,
     batteryDoD: 70,
@@ -176,7 +179,19 @@ export default function SolarCalculator() {
 
   // Update system parameter
   const updateParam = useCallback(<K extends keyof SystemParams>(key: K, value: SystemParams[K]) => {
-    setParams((prev) => ({ ...prev, [key]: value }));
+    setParams((prev) => {
+      const next = { ...prev, [key]: value };
+      // When battery type changes, auto-adjust DoD and capacity defaults
+      if (key === "batteryType") {
+        if (value === "lithium") {
+          next.batteryDoD = 90; // Lithium: 80-95%, default 90%
+          if (next.batteryCapacity < 100) next.batteryCapacity = 100;
+        } else {
+          next.batteryDoD = 70; // Lead-acid: 50-80%, default 70%
+        }
+      }
+      return next;
+    });
   }, []);
 
   // Calculate results
@@ -221,12 +236,16 @@ export default function SolarCalculator() {
 
     // Cost Estimates
     const panelCost = numberOfPanels * params.panelWattage * 0.4;
-    const batteryCost = actualTotalBatteries * params.batteryCapacity * 1.5;
+    // Lithium batteries cost ~$4.5/Ah vs Lead-acid ~$1.5/Ah
+    const costPerAh = params.batteryType === "lithium" ? 4.5 : 1.5;
+    const batteryCost = actualTotalBatteries * params.batteryCapacity * costPerAh;
     const inverterCost = recommendedInverter * 0.2;
     const controllerCost = recommendedController * 15;
     const accessories =
       0.15 * (panelCost + batteryCost + inverterCost + controllerCost);
     const totalCost = panelCost + batteryCost + inverterCost + controllerCost + accessories;
+
+    const batteryTypeName = params.batteryType === "lithium" ? "ليثيوم" : "حمض الرصاص";
 
     setResults({
       totalPeakLoad,
@@ -248,6 +267,7 @@ export default function SolarCalculator() {
       chargeControllerCurrent,
       recommendedController,
       controllerType,
+      batteryTypeName,
       panelCost,
       batteryCost,
       inverterCost,
@@ -598,8 +618,30 @@ export default function SolarCalculator() {
                       <SelectItem value="300">300 واط</SelectItem>
                       <SelectItem value="400">400 واط</SelectItem>
                       <SelectItem value="550">550 واط</SelectItem>
+                      <SelectItem value="600">600 واط</SelectItem>
+                      <SelectItem value="720">720 واط</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                {/* Battery Type */}
+                <div className="space-y-2">
+                  <Label className="text-gray-700">نوع البطارية</Label>
+                  <Select
+                    value={params.batteryType}
+                    onValueChange={(v) => updateParam("batteryType", v as "lead-acid" | "lithium")}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="lead-acid">حمض الرصاص (Lead-Acid)</SelectItem>
+                      <SelectItem value="lithium">ليثيوم (LiFePO4)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {params.batteryType === "lithium" && (
+                    <p className="text-xs text-emerald-600">عمق تفريغ يصل إلى 95% وعمر أطول</p>
+                  )}
                 </div>
 
                 {/* Battery Capacity */}
@@ -613,10 +655,21 @@ export default function SolarCalculator() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="100">100 أمبير·ساعة</SelectItem>
-                      <SelectItem value="150">150 أمبير·ساعة</SelectItem>
-                      <SelectItem value="200">200 أمبير·ساعة</SelectItem>
-                      <SelectItem value="250">250 أمبير·ساعة</SelectItem>
+                      {params.batteryType === "lithium" ? (
+                        <>
+                          <SelectItem value="100">100 أمبير·ساعة</SelectItem>
+                          <SelectItem value="200">200 أمبير·ساعة</SelectItem>
+                          <SelectItem value="280">280 أمبير·ساعة</SelectItem>
+                          <SelectItem value="300">300 أمبير·ساعة</SelectItem>
+                        </>
+                      ) : (
+                        <>
+                          <SelectItem value="100">100 أمبير·ساعة</SelectItem>
+                          <SelectItem value="150">150 أمبير·ساعة</SelectItem>
+                          <SelectItem value="200">200 أمبير·ساعة</SelectItem>
+                          <SelectItem value="250">250 أمبير·ساعة</SelectItem>
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -644,22 +697,30 @@ export default function SolarCalculator() {
                 {/* Battery DoD */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label className="text-gray-700">عمق تفريغ البطارية المسموح</Label>
-                    <Badge variant="outline" className="border-amber-300 text-amber-700">
+                    <Label className="text-gray-700">
+                      عمق تفريغ البطارية المسموح
+                      {params.batteryType === "lithium" && (
+                        <span className="mr-1 text-xs text-emerald-600">(ليثيوم)</span>
+                      )}
+                    </Label>
+                    <Badge
+                      variant="outline"
+                      className={params.batteryType === "lithium" ? "border-emerald-300 text-emerald-700" : "border-amber-300 text-amber-700"}
+                    >
                       {params.batteryDoD}%
                     </Badge>
                   </div>
                   <Slider
                     value={[params.batteryDoD]}
-                    min={50}
-                    max={80}
+                    min={params.batteryType === "lithium" ? 80 : 50}
+                    max={params.batteryType === "lithium" ? 95 : 80}
                     step={5}
                     onValueChange={([v]) => updateParam("batteryDoD", v)}
-                    className="[&_[data-slot=slider-range]]:bg-amber-500 [&_[data-slot=slider-thumb]]:border-amber-500"
+                    className={params.batteryType === "lithium" ? "[&_[data-slot=slider-range]]:bg-emerald-500 [&_[data-slot=slider-thumb]]:border-emerald-500" : "[&_[data-slot=slider-range]]:bg-amber-500 [&_[data-slot=slider-thumb]]:border-amber-500"}
                   />
                   <div className="flex justify-between text-xs text-gray-400">
-                    <span>50%</span>
-                    <span>80%</span>
+                    <span>{params.batteryType === "lithium" ? "80%" : "50%"}</span>
+                    <span>{params.batteryType === "lithium" ? "95%" : "80%"}</span>
                   </div>
                 </div>
 
@@ -825,6 +886,12 @@ export default function SolarCalculator() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  <ResultRow
+                    label="نوع البطارية"
+                    value={results.batteryTypeName}
+                    unit=""
+                    highlight
+                  />
                   <ResultRow
                     label="سعة المخزن المطلوبة"
                     value={formatNumber(Math.round(results.usableStorageWh))}
