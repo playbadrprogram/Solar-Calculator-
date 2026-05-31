@@ -53,6 +53,7 @@ interface SystemParams {
   systemVoltage: number;
   backupDays: number;
   panelWattage: number;
+  systemType: "on-grid" | "off-grid" | "hybrid";
   batteryType: "lead-acid" | "lithium";
   batteryCapacity: number;
   batteryVoltage: number;
@@ -71,17 +72,24 @@ interface CalculationResults {
   panelArea: number;
   requiredStorageWh: number;
   usableStorageWh: number;
+  requiredStorageKWh: number;
+  usableStorageKWh: number;
+  batteryCapacityKWh: number;
   totalBatteries: number;
   seriesBatteries: number;
   parallelBatteries: number;
   actualTotalBatteries: number;
   totalStoredEnergy: number;
+  totalStoredEnergyKWh: number;
   inverterCapacity: number;
   recommendedInverter: number;
   chargeControllerCurrent: number;
   recommendedController: number;
   controllerType: string;
   batteryTypeName: string;
+  systemTypeName: string;
+  recommendedBatteryBrands: string[];
+  recommendedInverterBrand: string;
   panelCost: number;
   batteryCost: number;
   inverterCost: number;
@@ -106,6 +114,29 @@ const industrialDefaults: LoadEntry[] = [
   { id: "3", name: "ضاغط هواء", quantity: 1, power: 5000, hours: 6 },
   { id: "4", name: "لحام كهربائي", quantity: 1, power: 4000, hours: 4 },
 ];
+
+// Battery brand recommendations based on type and capacity
+const lithiumBatteryBrands: Record<string, { name: string; capacities: string; notes: string }> = {
+  pylontech: { name: "Pylontech", capacities: "2.4 - 100 kWh", notes: "أكثر شيوعاً في المنظومات المنزلية" },
+  byd: { name: "BYD", capacities: "2.5 - 100 kWh", notes: "أداء ممتاز وعمر طويل" },
+  catl: { name: "CATL", capacities: "5 - 200 kWh", notes: "أكبر مصنع بطاريات في العالم" },
+  tesla: { name: "Tesla Powerwall", capacities: "13.5 kWh", notes: "مثالي للمنازل مع ضمان 10 سنوات" },
+  egyptian_lithium: { name: "Egyptian Lithium", capacities: "2.5 - 50 kWh", notes: "خيار محلي بسعر تنافسي" },
+  solax: { name: "SolaX", capacities: "3.3 - 20 kWh", notes: "تكامل ممتاز مع العواكس" },
+  victron: { name: "Victron Energy", capacities: "1.6 - 40 kWh", notes: "جودة هولندية عالية" },
+};
+
+// Inverter brand recommendations based on capacity and system type
+const inverterBrands: Record<string, { name: string; range: string; type: string; notes: string }> = {
+  growatt: { name: "Growatt", range: "1 - 100 kW", type: "on-grid/hybrid/off-grid", notes: "أفضل قيمة مقابل السعر" },
+  sma: { name: "SMA", range: "2 - 100 kW", type: "on-grid/hybrid/off-grid", notes: "ألماني - موثوقية عالية" },
+  victron_inv: { name: "Victron Energy", range: "0.5 - 100 kW", type: "off-grid/hybrid", notes: "خيار احترافي للمنظومات المستقلة" },
+  huawei: { name: "Huawei", range: "3 - 100 kW", type: "on-grid/hybrid", notes: "كفاءة عالية وضمان طويل" },
+  solark: { name: "Sol-Ark", range: "5 - 60 kW", type: "hybrid/off-grid", notes: "أمريكي - مثالي للمنظومات الهجينة" },
+  mpp_solar: { name: "MPP Solar", range: "1 - 12 kW", type: "off-grid/hybrid", notes: "اقتصادي للمنظومات الصغيرة" },
+  deye: { name: "Deye", range: "3 - 50 kW", type: "hybrid/on-grid", notes: "خيار شائع في الشرق الأوسط" },
+  sungrow: { name: "Sungrow", range: "2 - 100 kW", type: "on-grid/hybrid", notes: "صيني رائد - كفاءة عالية" },
+};
 
 // Number formatter with Arabic locale
 function formatNumber(num: number, decimals: number = 0): string {
@@ -135,6 +166,7 @@ export default function SolarCalculator() {
     systemVoltage: 48,
     backupDays: 2,
     panelWattage: 550,
+    systemType: "off-grid",
     batteryType: "lead-acid",
     batteryCapacity: 200,
     batteryVoltage: 12,
@@ -184,11 +216,17 @@ export default function SolarCalculator() {
       // When battery type changes, auto-adjust DoD and capacity defaults
       if (key === "batteryType") {
         if (value === "lithium") {
-          next.batteryDoD = 90; // Lithium: 80-95%, default 90%
+          next.batteryDoD = 90;
           if (next.batteryCapacity < 100) next.batteryCapacity = 100;
         } else {
-          next.batteryDoD = 70; // Lead-acid: 50-80%, default 70%
+          next.batteryDoD = 70;
         }
+      }
+      // When system type is on-grid, batteries not needed
+      if (key === "systemType" && value === "on-grid") {
+        next.backupDays = 0;
+      } else if (key === "systemType" && value !== "on-grid" && next.backupDays === 0) {
+        next.backupDays = 2;
       }
       return next;
     });
@@ -211,41 +249,88 @@ export default function SolarCalculator() {
     const numberOfPanels = Math.ceil(requiredSolarCapacity / params.panelWattage);
     const panelArea = numberOfPanels * 2.2;
 
-    // Battery Bank
-    const requiredStorageWh = totalDailyConsumptionWh * params.backupDays;
-    const usableStorageWh = requiredStorageWh / (params.batteryDoD / 100);
+    // Battery Bank (only for off-grid and hybrid)
+    const isOnGrid = params.systemType === "on-grid";
+    const requiredStorageWh = isOnGrid ? 0 : totalDailyConsumptionWh * params.backupDays;
+    const usableStorageWh = isOnGrid ? 0 : requiredStorageWh / (params.batteryDoD / 100);
+    const requiredStorageKWh = requiredStorageWh / 1000;
+    const usableStorageKWh = usableStorageWh / 1000;
     const batteryCapacityWh = params.batteryCapacity * params.batteryVoltage;
-    const totalBatteries = Math.ceil(usableStorageWh / batteryCapacityWh);
-    const seriesBatteries = params.systemVoltage / params.batteryVoltage;
-    const parallelBatteries = Math.ceil(totalBatteries / seriesBatteries);
-    const actualTotalBatteries = seriesBatteries * parallelBatteries;
-    const totalStoredEnergy = (actualTotalBatteries * batteryCapacityWh) / 1000;
+    const batteryCapacityKWh = batteryCapacityWh / 1000;
+    const totalBatteries = isOnGrid ? 0 : Math.ceil(usableStorageWh / batteryCapacityWh);
+    const seriesBatteries = isOnGrid ? 0 : params.systemVoltage / params.batteryVoltage;
+    const parallelBatteries = isOnGrid ? 0 : Math.ceil(totalBatteries / seriesBatteries);
+    const actualTotalBatteries = isOnGrid ? 0 : seriesBatteries * parallelBatteries;
+    const totalStoredEnergy = isOnGrid ? 0 : (actualTotalBatteries * batteryCapacityWh) / 1000;
+    const totalStoredEnergyKWh = totalStoredEnergy;
 
     // Inverter
     const inverterCapacity = totalPeakLoad;
     const recommendedInverter =
       Math.ceil((inverterCapacity * 1.25) / 500) * 500;
 
-    // Charge Controller
-    const chargeControllerCurrent = Math.ceil(
+    // Charge Controller (only for off-grid and hybrid)
+    const chargeControllerCurrent = isOnGrid ? 0 : Math.ceil(
       (numberOfPanels * params.panelWattage) / params.systemVoltage
     );
-    const recommendedController =
+    const recommendedController = isOnGrid ? 0 :
       Math.ceil((chargeControllerCurrent * 1.25) / 10) * 10;
-    const controllerType = recommendedController > 30 ? "MPPT" : "PWM/MPPT";
+    const controllerType = isOnGrid ? "-" : (recommendedController > 30 ? "MPPT" : "PWM/MPPT");
+
+    // System type name
+    const systemTypeNameMap: Record<string, string> = {
+      "on-grid": "متصلة بالشبكة (On-Grid)",
+      "off-grid": "مستقلة (Off-Grid)",
+      "hybrid": "هجينة (Hybrid)",
+    };
+    const systemTypeName = systemTypeNameMap[params.systemType];
+
+    // Battery brand recommendations based on type and required capacity
+    const recommendedBatteryBrands: string[] = [];
+    if (!isOnGrid) {
+      if (params.batteryType === "lithium") {
+        const reqKWh = usableStorageKWh;
+        if (reqKWh <= 15) {
+          recommendedBatteryBrands.push("Pylontech", "SolaX", "MPP Solar");
+        } else if (reqKWh <= 50) {
+          recommendedBatteryBrands.push("Pylontech", "BYD", "SolaX", "Victron Energy");
+        } else {
+          recommendedBatteryBrands.push("BYD", "CATL", "Pylontech", "Sungrow");
+        }
+      } else {
+        recommendedBatteryBrands.push("Trojan", "Rolls", "Victron Energy");
+      }
+    }
+
+    // Inverter brand recommendations based on capacity and system type
+    let recommendedInverterBrand = "";
+    const invKw = recommendedInverter / 1000;
+    if (params.systemType === "on-grid") {
+      if (invKw <= 10) recommendedInverterBrand = "Growatt, Sungrow";
+      else if (invKw <= 30) recommendedInverterBrand = "Huawei, SMA, Growatt";
+      else recommendedInverterBrand = "SMA, Huawei, Sungrow";
+    } else if (params.systemType === "off-grid") {
+      if (invKw <= 5) recommendedInverterBrand = "Victron Energy, MPP Solar";
+      else if (invKw <= 20) recommendedInverterBrand = "Victron Energy, Growatt, SMA";
+      else recommendedInverterBrand = "SMA, Victron Energy, Sol-Ark";
+    } else {
+      if (invKw <= 10) recommendedInverterBrand = "Deye, Growatt, Victron Energy";
+      else if (invKw <= 30) recommendedInverterBrand = "Huawei, Deye, SMA, Sol-Ark";
+      else recommendedInverterBrand = "SMA, Huawei, Sungrow, Sol-Ark";
+    }
 
     // Cost Estimates
     const panelCost = numberOfPanels * params.panelWattage * 0.4;
     // Lithium batteries cost ~$4.5/Ah vs Lead-acid ~$1.5/Ah
     const costPerAh = params.batteryType === "lithium" ? 4.5 : 1.5;
-    const batteryCost = actualTotalBatteries * params.batteryCapacity * costPerAh;
+    const batteryCost = isOnGrid ? 0 : actualTotalBatteries * params.batteryCapacity * costPerAh;
     const inverterCost = recommendedInverter * 0.2;
-    const controllerCost = recommendedController * 15;
+    const controllerCost = isOnGrid ? 0 : recommendedController * 15;
     const accessories =
       0.15 * (panelCost + batteryCost + inverterCost + controllerCost);
     const totalCost = panelCost + batteryCost + inverterCost + controllerCost + accessories;
 
-    const batteryTypeName = params.batteryType === "lithium" ? "ليثيوم" : "حمض الرصاص";
+    const batteryTypeName = isOnGrid ? "-" : (params.batteryType === "lithium" ? "ليثيوم" : "حمض الرصاص");
 
     setResults({
       totalPeakLoad,
@@ -257,17 +342,24 @@ export default function SolarCalculator() {
       panelArea,
       requiredStorageWh,
       usableStorageWh,
+      requiredStorageKWh,
+      usableStorageKWh,
+      batteryCapacityKWh,
       totalBatteries,
       seriesBatteries,
       parallelBatteries,
       actualTotalBatteries,
       totalStoredEnergy,
+      totalStoredEnergyKWh,
       inverterCapacity,
       recommendedInverter,
       chargeControllerCurrent,
       recommendedController,
       controllerType,
       batteryTypeName,
+      systemTypeName,
+      recommendedBatteryBrands,
+      recommendedInverterBrand,
       panelCost,
       batteryCost,
       inverterCost,
@@ -543,6 +635,33 @@ export default function SolarCalculator() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {/* System Type */}
+                <div className="space-y-2">
+                  <Label className="text-gray-700">نوع المنظومة</Label>
+                  <Select
+                    value={params.systemType}
+                    onValueChange={(v) => updateParam("systemType", v as "on-grid" | "off-grid" | "hybrid")}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="off-grid">مستقلة (Off-Grid)</SelectItem>
+                      <SelectItem value="on-grid">متصلة بالشبكة (On-Grid)</SelectItem>
+                      <SelectItem value="hybrid">هجينة (Hybrid)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {params.systemType === "on-grid" && (
+                    <p className="text-xs text-blue-600">لا حاجة للبطاريات - يتم بيع الفائض للشبكة</p>
+                  )}
+                  {params.systemType === "hybrid" && (
+                    <p className="text-xs text-emerald-600">تعمل مع الشبكة والبطاريات معاً</p>
+                  )}
+                  {params.systemType === "off-grid" && (
+                    <p className="text-xs text-amber-600">تعتمد كلياً على الألواح والبطاريات</p>
+                  )}
+                </div>
+
                 {/* Sunshine Hours */}
                 <div className="space-y-2">
                   <Label htmlFor="sunshineHours" className="text-gray-700">
@@ -657,17 +776,17 @@ export default function SolarCalculator() {
                     <SelectContent>
                       {params.batteryType === "lithium" ? (
                         <>
-                          <SelectItem value="100">100 أمبير·ساعة</SelectItem>
-                          <SelectItem value="200">200 أمبير·ساعة</SelectItem>
-                          <SelectItem value="280">280 أمبير·ساعة</SelectItem>
-                          <SelectItem value="300">300 أمبير·ساعة</SelectItem>
+                          <SelectItem value="100">100 أمبير·ساعة ({(100 * params.batteryVoltage / 1000).toFixed(1)} كيلوواط·ساعة)</SelectItem>
+                          <SelectItem value="200">200 أمبير·ساعة ({(200 * params.batteryVoltage / 1000).toFixed(1)} كيلوواط·ساعة)</SelectItem>
+                          <SelectItem value="280">280 أمبير·ساعة ({(280 * params.batteryVoltage / 1000).toFixed(1)} كيلوواط·ساعة)</SelectItem>
+                          <SelectItem value="300">300 أمبير·ساعة ({(300 * params.batteryVoltage / 1000).toFixed(1)} كيلوواط·ساعة)</SelectItem>
                         </>
                       ) : (
                         <>
-                          <SelectItem value="100">100 أمبير·ساعة</SelectItem>
-                          <SelectItem value="150">150 أمبير·ساعة</SelectItem>
-                          <SelectItem value="200">200 أمبير·ساعة</SelectItem>
-                          <SelectItem value="250">250 أمبير·ساعة</SelectItem>
+                          <SelectItem value="100">100 أمبير·ساعة ({(100 * params.batteryVoltage / 1000).toFixed(1)} كيلوواط·ساعة)</SelectItem>
+                          <SelectItem value="150">150 أمبير·ساعة ({(150 * params.batteryVoltage / 1000).toFixed(1)} كيلوواط·ساعة)</SelectItem>
+                          <SelectItem value="200">200 أمبير·ساعة ({(200 * params.batteryVoltage / 1000).toFixed(1)} كيلوواط·ساعة)</SelectItem>
+                          <SelectItem value="250">250 أمبير·ساعة ({(250 * params.batteryVoltage / 1000).toFixed(1)} كيلوواط·ساعة)</SelectItem>
                         </>
                       )}
                     </SelectContent>
@@ -881,43 +1000,54 @@ export default function SolarCalculator() {
                     </div>
                     <div>
                       <CardTitle className="text-lg text-gray-800">البطاريات</CardTitle>
-                      <CardDescription>حساب بنك البطاريات المطلوب</CardDescription>
+                      <CardDescription>
+                        {params.systemType === "on-grid" ? "لا حاجة للبطاريات في المنظومة المتصلة بالشبكة" : "حساب بنك البطاريات المطلوب"}
+                      </CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <ResultRow
-                    label="نوع البطارية"
-                    value={results.batteryTypeName}
-                    unit=""
-                    highlight
-                  />
-                  <ResultRow
-                    label="سعة المخزن المطلوبة"
-                    value={formatNumber(Math.round(results.usableStorageWh))}
-                    unit="واط·س"
-                  />
-                  <ResultRow
-                    label="عدد البطاريات المطلوبة"
-                    value={formatNumber(results.actualTotalBatteries)}
-                    unit="بطارية"
-                    highlight
-                  />
-                  <ResultRow
-                    label="سعة البطارية الواحدة"
-                    value={formatNumber(params.batteryCapacity)}
-                    unit="أمبير·ساعة"
-                  />
-                  <ResultRow
-                    label="توصيل البطاريات"
-                    value={`${formatNumber(results.seriesBatteries)} سلسل × ${formatNumber(results.parallelBatteries)} توازي`}
-                    unit=""
-                  />
-                  <ResultRow
-                    label="إجمالي الطاقة المخزنة"
-                    value={formatNumber(results.totalStoredEnergy, 2)}
-                    unit="كيلوواط·س"
-                  />
+                  {params.systemType === "on-grid" ? (
+                    <div className="rounded-lg bg-blue-50 p-4 text-center">
+                      <p className="text-sm text-blue-700 font-semibold">المنظومة متصلة بالشبكة</p>
+                      <p className="text-xs text-blue-500 mt-1">لا حاجة لبطاريات - يتم بيع الفائض للشبكة مباشرة</p>
+                    </div>
+                  ) : (
+                    <>
+                      <ResultRow
+                        label="نوع البطارية"
+                        value={results.batteryTypeName}
+                        unit=""
+                        highlight
+                      />
+                      <ResultRow
+                        label="سعة المخزن المطلوبة"
+                        value={`${formatNumber(Math.round(results.usableStorageWh))} واط·س (${formatNumber(results.usableStorageKWh, 2)} كيلوواط·ساعة)`}
+                        unit=""
+                      />
+                      <ResultRow
+                        label="عدد البطاريات المطلوبة"
+                        value={formatNumber(results.actualTotalBatteries)}
+                        unit="بطارية"
+                        highlight
+                      />
+                      <ResultRow
+                        label="سعة البطارية الواحدة"
+                        value={`${formatNumber(params.batteryCapacity)} أمبير·ساعة (${formatNumber(results.batteryCapacityKWh, 1)} كيلوواط·ساعة)`}
+                        unit=""
+                      />
+                      <ResultRow
+                        label="توصيل البطاريات"
+                        value={`${formatNumber(results.seriesBatteries)} سلسل × ${formatNumber(results.parallelBatteries)} توازي`}
+                        unit=""
+                      />
+                      <ResultRow
+                        label="إجمالي الطاقة المخزنة"
+                        value={`${formatNumber(results.totalStoredEnergy, 2)} كيلوواط·س (${formatNumber(results.totalStoredEnergyKWh, 2)} كيلوواط·ساعة)`}
+                        unit=""
+                      />
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1045,6 +1175,180 @@ export default function SolarCalculator() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Card 7: System Type & Connection */}
+              <Card className="border-amber-200/60 shadow-sm overflow-hidden">
+                <div className="h-1 bg-gradient-to-l from-cyan-400 to-teal-500" />
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <div className="flex size-10 items-center justify-center rounded-lg bg-cyan-100">
+                      <Zap className="size-5 text-cyan-600" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg text-gray-800">نوع المنظومة وطريقة الربط</CardTitle>
+                      <CardDescription>تفاصيل طريقة توصيل المنظومة</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <ResultRow
+                    label="نوع المنظومة"
+                    value={results.systemTypeName}
+                    unit=""
+                    highlight
+                  />
+                  {params.systemType === "on-grid" && (
+                    <>
+                      <ResultRow
+                        label="طريقة الربط"
+                        value="متصلة بالشبكة مباشرة"
+                        unit=""
+                      />
+                      <ResultRow
+                        label="بيع الفائض"
+                        value="نعم - يتم بيع الطاقة الفائضة للشبكة"
+                        unit=""
+                      />
+                      <ResultRow
+                        label="الحاجة للبطاريات"
+                        value="لا"
+                        unit=""
+                      />
+                    </>
+                  )}
+                  {params.systemType === "off-grid" && (
+                    <>
+                      <ResultRow
+                        label="طريقة الربط"
+                        value="مستقلة تماماً عن الشبكة"
+                        unit=""
+                      />
+                      <ResultRow
+                        label="بيع الفائض"
+                        value="لا - الطاقة الفائضة غير مستغلة"
+                        unit=""
+                      />
+                      <ResultRow
+                        label="الحاجة للبطاريات"
+                        value="نعم - أساسية لتخزين الطاقة"
+                        unit=""
+                      />
+                    </>
+                  )}
+                  {params.systemType === "hybrid" && (
+                    <>
+                      <ResultRow
+                        label="طريقة الربط"
+                        value="هجينة - شبكة + بطاريات"
+                        unit=""
+                      />
+                      <ResultRow
+                        label="بيع الفائض"
+                        value="نعم - بعد شحن البطاريات"
+                        unit=""
+                      />
+                      <ResultRow
+                        label="الحاجة للبطاريات"
+                        value="نعم - كاحتياطي وتخزين"
+                        unit=""
+                      />
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Card 8: Brand Recommendations */}
+              <Card className="border-amber-200/60 shadow-sm overflow-hidden">
+                <div className="h-1 bg-gradient-to-l from-rose-400 to-pink-500" />
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <div className="flex size-10 items-center justify-center rounded-lg bg-rose-100">
+                      <Sparkles className="size-5 text-rose-600" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg text-gray-800">توصيات الشركات والمعدات</CardTitle>
+                      <CardDescription>شركات موثوقة بناءً على حجم المنظومة ونوعها</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Inverter Recommendation */}
+                  <div>
+                    <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-1">
+                      <Zap className="size-4 text-blue-500" />
+                      عواكس (Inverters) موصى بها
+                    </h4>
+                    <div className="rounded-lg bg-blue-50 p-3">
+                      <p className="font-semibold text-blue-800 text-sm">{results.recommendedInverterBrand}</p>
+                      <div className="mt-2 space-y-1">
+                        {Object.entries(inverterBrands)
+                          .filter(([_, brand]) => {
+                            if (params.systemType === "on-grid") return brand.type.includes("on-grid");
+                            if (params.systemType === "off-grid") return brand.type.includes("off-grid");
+                            return brand.type.includes("hybrid");
+                          })
+                          .slice(0, 4)
+                          .map(([key, brand]) => (
+                            <div key={key} className="flex items-start gap-2 text-xs">
+                              <Badge variant="outline" className="shrink-0 border-blue-200 text-blue-700 text-[10px]">
+                                {brand.name}
+                              </Badge>
+                              <span className="text-gray-600">{brand.range} - {brand.notes}</span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Battery Recommendation */}
+                  {params.systemType !== "on-grid" && (
+                    <div>
+                      <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-1">
+                        <Battery className="size-4 text-green-500" />
+                        بطاريات {params.batteryType === "lithium" ? "ليثيوم" : "حمض الرصاص"} موصى بها
+                      </h4>
+                      <div className="rounded-lg bg-green-50 p-3">
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {results.recommendedBatteryBrands.map((brand, i) => (
+                            <Badge key={i} variant="outline" className="border-green-200 text-green-700">
+                              {brand}
+                            </Badge>
+                          ))}
+                        </div>
+                        {params.batteryType === "lithium" && (
+                          <div className="mt-2 space-y-1">
+                            {Object.entries(lithiumBatteryBrands)
+                              .slice(0, 5)
+                              .map(([key, brand]) => (
+                                <div key={key} className="flex items-start gap-2 text-xs">
+                                  <Badge variant="outline" className="shrink-0 border-green-200 text-green-700 text-[10px]">
+                                    {brand.name}
+                                  </Badge>
+                                  <span className="text-gray-600">{brand.capacities} - {brand.notes}</span>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Charge Controller Note */}
+                  {params.systemType !== "on-grid" && (
+                    <div className="rounded-lg bg-purple-50 p-3">
+                      <h4 className="font-bold text-gray-700 text-xs mb-1 flex items-center gap-1">
+                        <Gauge className="size-3 text-purple-500" />
+                        منظم الشحن الموصى به
+                      </h4>
+                      <p className="text-xs text-gray-600">
+                        {results.controllerType === "MPPT"
+                          ? "يُنصح بمنظم شحن MPPT لكفاءة أعلى في تحويل الطاقة، خاصة مع الألواح عالية القدرة."
+                          : "يمكن استخدام منظم PWM أو MPPT حسب الميزانية المتاحة."}
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
             {/* Disclaimer */}
             <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 text-center text-sm text-amber-700">
