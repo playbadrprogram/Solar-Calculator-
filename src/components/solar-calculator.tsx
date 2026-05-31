@@ -724,6 +724,11 @@ export default function SolarCalculator() {
   const totalPeakLoad = loads.reduce((sum, l) => sum + l.quantity * l.power, 0);
   const totalDailyEnergy = loads.reduce((sum, l) => sum + l.quantity * l.power * l.hours, 0);
 
+  // Compute selected inverter model for JSX rendering (outside calculate function)
+  const selectedInverterModelObj = (selectedInverterBrand && selectedInverterModel)
+    ? inverterBrands[selectedInverterBrand]?.models[parseInt(selectedInverterModel)]
+    : null;
+
   // PDF Export
   const exportToPDF = async () => {
     const element = document.getElementById("report-content");
@@ -1371,7 +1376,7 @@ ${results ? `إجمالي الاستهلاك: ${formatNumber(results.totalDailyC
                     </Select>
                     {selectedBatteryModel && lithiumBatteryBrands[selectedBatteryBrand]?.models[parseInt(selectedBatteryModel)] && (
                       <p className="text-xs text-emerald-600">
-                        {lithiumBatteryBrands[selectedBatteryBrand].name} - {lithiumBatteryBrands[selectedBatteryBrand].models[parseInt(selectedBatteryModel)].name} | {lithiumBatteryBrands[selectedBatteryBrand].notes}
+                        {lithiumBatteryBrands[selectedBatteryBrand]?.name} - {lithiumBatteryBrands[selectedBatteryBrand]?.models[parseInt(selectedBatteryModel)]?.name} | {lithiumBatteryBrands[selectedBatteryBrand]?.notes}
                       </p>
                     )}
                   </div>
@@ -1427,7 +1432,12 @@ ${results ? `إجمالي الاستهلاك: ${formatNumber(results.totalDailyC
                     </Select>
                     {selectedInverterModel && inverterBrands[selectedInverterBrand]?.models[parseInt(selectedInverterModel)] && (
                       <p className="text-xs text-blue-600">
-                        {inverterBrands[selectedInverterBrand].name} | {inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].pvVoltageRange} PV | {inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].mpptCount} MPPT | {inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].maxPvCurrentPerMPPT > 0 ? `${inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].maxPvCurrentPerMPPT}A/MPPT` : ""} {inverterBrands[selectedInverterBrand].notes}
+                        {(() => {
+                          const brand = inverterBrands[selectedInverterBrand];
+                          const model = brand?.models[parseInt(selectedInverterModel!)];
+                          if (!brand || !model) return null;
+                          return `${brand.name} | ${model.pvVoltageRange} PV | ${model.mpptCount} MPPT${model.maxPvCurrentPerMPPT > 0 ? ` | ${model.maxPvCurrentPerMPPT}A/MPPT` : ""} ${brand.notes}`;
+                        })()}
                       </p>
                     )}
                   </div>
