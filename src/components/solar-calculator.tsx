@@ -110,7 +110,7 @@ interface CalculationResults {
   selectedBatterySpecs: string;
   selectedInverterSpecs: string;
   matchingBatteryModels: { brand: string; model: string; voltage: number; capacityAh: number; energyKWh: number; price: number }[];
-  matchingInverterModels: { brand: string; model: string; powerW: number; pvVoltageRange: string; mpptCount: number; maxPvPower: number; price: number }[];
+  matchingInverterModels: { brand: string; model: string; powerW: number; pvVoltageRange: string; mpptCount: number; maxPvPower: number; maxPvCurrentPerMPPT: number; price: number }[];
   // MPPT String sizing
   panelVoc: number;
   panelIsc: number;
@@ -128,6 +128,7 @@ interface CalculationResults {
   mpptMaxV: number;
   mpptCount: number;
   hasMpptData: boolean;
+  maxPvCurrentPerMPPT: number;
 }
 
 // Panel specs auto-fill helper
@@ -230,18 +231,18 @@ const lithiumBatteryBrands: Record<string, {
 // Inverter brand recommendations with detailed product models
 const inverterBrands: Record<string, { 
   name: string; 
-  models: { name: string; powerW: number; pvVoltageRange: string; mpptCount: number; maxPvPower: number; batteryVoltage: string; notes: string; price: number }[];
+  models: { name: string; powerW: number; pvVoltageRange: string; mpptCount: number; maxPvPower: number; maxPvCurrentPerMPPT: number; batteryVoltage: string; notes: string; price: number }[];
   type: string; 
   notes: string 
 }> = {
   luxpower: { 
     name: "Lux Power / POWERTEK", 
     models: [
-      { name: "SNA-EU 5000", powerW: 5000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 7500, batteryVoltage: "38.4-60V", notes: "منظومة منزلية صغيرة", price: 800 },
-      { name: "SNA-EU 8000", powerW: 8000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 12000, batteryVoltage: "38.4-60V", notes: "منظومة منزلية متوسطة", price: 1200 },
-      { name: "SNA-EU 10000", powerW: 10000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 15000, batteryVoltage: "38.4-60V", notes: "منظومة منزلية كبيرة", price: 1500 },
-      { name: "SNA-EU 12000", powerW: 12000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 18000, batteryVoltage: "38.4-60V", notes: "منظومة تجارية صغيرة", price: 1800 },
-      { name: "SNA-EU 14000", powerW: 14000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 24000, batteryVoltage: "38.4-60V", notes: "منظومة تجارية متوسطة", price: 2200 },
+      { name: "SNA-EU 5000", powerW: 5000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 7500, maxPvCurrentPerMPPT: 18, batteryVoltage: "38.4-60V", notes: "منظومة منزلية صغيرة", price: 800 },
+      { name: "SNA-EU 8000", powerW: 8000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 12000, maxPvCurrentPerMPPT: 25, batteryVoltage: "38.4-60V", notes: "منظومة منزلية متوسطة", price: 1200 },
+      { name: "SNA-EU 10000", powerW: 10000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 15000, maxPvCurrentPerMPPT: 27, batteryVoltage: "38.4-60V", notes: "منظومة منزلية كبيرة", price: 1500 },
+      { name: "SNA-EU 12000", powerW: 12000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 18000, maxPvCurrentPerMPPT: 30, batteryVoltage: "38.4-60V", notes: "منظومة تجارية صغيرة", price: 1800 },
+      { name: "SNA-EU 14000", powerW: 14000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 24000, maxPvCurrentPerMPPT: 35, batteryVoltage: "38.4-60V", notes: "منظومة تجارية متوسطة", price: 2200 },
     ],
     type: "hybrid/off-grid", 
     notes: "خيار شائع في اليمن - ضمان 5 سنوات" 
@@ -249,9 +250,9 @@ const inverterBrands: Record<string, {
   growatt: { 
     name: "Growatt", 
     models: [
-      { name: "SPF 5000ES", powerW: 5000, pvVoltageRange: "120-450V", mpptCount: 2, maxPvPower: 6500, batteryVoltage: "40-60V", notes: "منزلي اقتصادي", price: 650 },
-      { name: "SPF 8000ES", powerW: 8000, pvVoltageRange: "120-450V", mpptCount: 2, maxPvPower: 10400, batteryVoltage: "40-60V", notes: "منزلي متوسط", price: 1000 },
-      { name: "SPH 10000TL3", powerW: 10000, pvVoltageRange: "100-550V", mpptCount: 2, maxPvPower: 15000, batteryVoltage: "120-480V", notes: "هجين ثلاثي الأطوار", price: 1400 },
+      { name: "SPF 5000ES", powerW: 5000, pvVoltageRange: "120-450V", mpptCount: 2, maxPvPower: 6500, maxPvCurrentPerMPPT: 18, batteryVoltage: "40-60V", notes: "منزلي اقتصادي", price: 650 },
+      { name: "SPF 8000ES", powerW: 8000, pvVoltageRange: "120-450V", mpptCount: 2, maxPvPower: 10400, maxPvCurrentPerMPPT: 25, batteryVoltage: "40-60V", notes: "منزلي متوسط", price: 1000 },
+      { name: "SPH 10000TL3", powerW: 10000, pvVoltageRange: "100-550V", mpptCount: 2, maxPvPower: 15000, maxPvCurrentPerMPPT: 25, batteryVoltage: "120-480V", notes: "هجين ثلاثي الأطوار", price: 1400 },
     ],
     type: "on-grid/hybrid/off-grid", 
     notes: "أفضل قيمة مقابل السعر" 
@@ -259,9 +260,9 @@ const inverterBrands: Record<string, {
   deye: { 
     name: "Deye", 
     models: [
-      { name: "SUN-5K-SG04LP3", powerW: 5000, pvVoltageRange: "120-500V", mpptCount: 2, maxPvPower: 6500, batteryVoltage: "40-60V", notes: "هجين أحادي الطور", price: 900 },
-      { name: "SUN-8K-SG04LP3", powerW: 8000, pvVoltageRange: "120-500V", mpptCount: 2, maxPvPower: 10400, batteryVoltage: "40-60V", notes: "هجين أحادي الطور", price: 1300 },
-      { name: "SUN-12K-SG04LP3", powerW: 12000, pvVoltageRange: "200-600V", mpptCount: 2, maxPvPower: 15600, batteryVoltage: "120-480V", notes: "هجين ثلاثي الأطوار", price: 1900 },
+      { name: "SUN-5K-SG04LP3", powerW: 5000, pvVoltageRange: "120-500V", mpptCount: 2, maxPvPower: 6500, maxPvCurrentPerMPPT: 18, batteryVoltage: "40-60V", notes: "هجين أحادي الطور", price: 900 },
+      { name: "SUN-8K-SG04LP3", powerW: 8000, pvVoltageRange: "120-500V", mpptCount: 2, maxPvPower: 10400, maxPvCurrentPerMPPT: 25, batteryVoltage: "40-60V", notes: "هجين أحادي الطور", price: 1300 },
+      { name: "SUN-12K-SG04LP3", powerW: 12000, pvVoltageRange: "200-600V", mpptCount: 2, maxPvPower: 15600, maxPvCurrentPerMPPT: 30, batteryVoltage: "120-480V", notes: "هجين ثلاثي الأطوار", price: 1900 },
     ],
     type: "hybrid/on-grid", 
     notes: "خيار شائع في الشرق الأوسط" 
@@ -269,8 +270,8 @@ const inverterBrands: Record<string, {
   sma: { 
     name: "SMA", 
     models: [
-      { name: "Sunny Island 6048", powerW: 6000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, batteryVoltage: "42-60V", notes: "عاكس بطاريات احترافي", price: 2500 },
-      { name: "Sunny Boy Storage", powerW: 5000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, batteryVoltage: "150-500V", notes: "نظام تخزين متكامل", price: 2200 },
+      { name: "Sunny Island 6048", powerW: 6000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, maxPvCurrentPerMPPT: 0, batteryVoltage: "42-60V", notes: "عاكس بطاريات احترافي", price: 2500 },
+      { name: "Sunny Boy Storage", powerW: 5000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, maxPvCurrentPerMPPT: 0, batteryVoltage: "150-500V", notes: "نظام تخزين متكامل", price: 2200 },
     ],
     type: "on-grid/hybrid/off-grid", 
     notes: "ألماني - موثوقية عالية" 
@@ -278,9 +279,9 @@ const inverterBrands: Record<string, {
   victron_inv: { 
     name: "Victron Energy", 
     models: [
-      { name: "MultiPlus-II 48/5000", powerW: 5000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, batteryVoltage: "38-66V", notes: "نظام متكامل مع شاحن", price: 1800 },
-      { name: "MultiPlus-II 48/8000", powerW: 8000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, batteryVoltage: "38-66V", notes: "نظام متكامل مع شاحن", price: 2600 },
-      { name: "Quattro 48/10000", powerW: 10000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, batteryVoltage: "38-66V", notes: "نظام مزدوج الدخول", price: 3200 },
+      { name: "MultiPlus-II 48/5000", powerW: 5000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, maxPvCurrentPerMPPT: 0, batteryVoltage: "38-66V", notes: "نظام متكامل مع شاحن", price: 1800 },
+      { name: "MultiPlus-II 48/8000", powerW: 8000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, maxPvCurrentPerMPPT: 0, batteryVoltage: "38-66V", notes: "نظام متكامل مع شاحن", price: 2600 },
+      { name: "Quattro 48/10000", powerW: 10000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, maxPvCurrentPerMPPT: 0, batteryVoltage: "38-66V", notes: "نظام مزدوج الدخول", price: 3200 },
     ],
     type: "off-grid/hybrid", 
     notes: "خيار احترافي للمنظومات المستقلة" 
@@ -288,8 +289,8 @@ const inverterBrands: Record<string, {
   huawei: { 
     name: "Huawei", 
     models: [
-      { name: "SUN2000-5KTL", powerW: 5000, pvVoltageRange: "100-560V", mpptCount: 2, maxPvPower: 7500, batteryVoltage: "85-600V", notes: "هجين ذكي مع WiFi", price: 950 },
-      { name: "SUN2000-10KTL", powerW: 10000, pvVoltageRange: "200-1000V", mpptCount: 2, maxPvPower: 15000, batteryVoltage: "85-600V", notes: "هجين ثلاثي الأطوار", price: 1800 },
+      { name: "SUN2000-5KTL", powerW: 5000, pvVoltageRange: "100-560V", mpptCount: 2, maxPvPower: 7500, maxPvCurrentPerMPPT: 25, batteryVoltage: "85-600V", notes: "هجين ذكي مع WiFi", price: 950 },
+      { name: "SUN2000-10KTL", powerW: 10000, pvVoltageRange: "200-1000V", mpptCount: 2, maxPvPower: 15000, maxPvCurrentPerMPPT: 25, batteryVoltage: "85-600V", notes: "هجين ثلاثي الأطوار", price: 1800 },
     ],
     type: "on-grid/hybrid", 
     notes: "كفاءة عالية وضمان طويل" 
@@ -297,8 +298,8 @@ const inverterBrands: Record<string, {
   sungrow: { 
     name: "Sungrow", 
     models: [
-      { name: "SH5.0RT", powerW: 5000, pvVoltageRange: "150-800V", mpptCount: 2, maxPvPower: 7500, batteryVoltage: "150-600V", notes: "هجين أحادي الطور", price: 900 },
-      { name: "SH10RT", powerW: 10000, pvVoltageRange: "200-1000V", mpptCount: 2, maxPvPower: 15000, batteryVoltage: "150-600V", notes: "هجين ثلاثي الأطوار", price: 1700 },
+      { name: "SH5.0RT", powerW: 5000, pvVoltageRange: "150-800V", mpptCount: 2, maxPvPower: 7500, maxPvCurrentPerMPPT: 25, batteryVoltage: "150-600V", notes: "هجين أحادي الطور", price: 900 },
+      { name: "SH10RT", powerW: 10000, pvVoltageRange: "200-1000V", mpptCount: 2, maxPvPower: 15000, maxPvCurrentPerMPPT: 25, batteryVoltage: "150-600V", notes: "هجين ثلاثي الأطوار", price: 1700 },
     ],
     type: "on-grid/hybrid", 
     notes: "صيني رائد - كفاءة عالية" 
@@ -570,7 +571,7 @@ export default function SolarCalculator() {
     }
 
     // Find matching inverter models from all brands
-    const matchingInverterModels: { brand: string; model: string; powerW: number; pvVoltageRange: string; mpptCount: number; maxPvPower: number; price: number }[] = [];
+    const matchingInverterModels: { brand: string; model: string; powerW: number; pvVoltageRange: string; mpptCount: number; maxPvPower: number; maxPvCurrentPerMPPT: number; price: number }[] = [];
     Object.entries(inverterBrands)
       .filter(([_, brand]) => {
         if (params.systemType === "on-grid") return brand.type.includes("on-grid");
@@ -581,7 +582,7 @@ export default function SolarCalculator() {
         brand.models.forEach((m) => {
           // Include models that could handle the required power
           if (m.powerW >= recommendedInverter * 0.5 && m.powerW <= recommendedInverter * 2) {
-            matchingInverterModels.push({ brand: brand.name, model: m.name, powerW: m.powerW, pvVoltageRange: m.pvVoltageRange, mpptCount: m.mpptCount, maxPvPower: m.maxPvPower, price: m.price });
+            matchingInverterModels.push({ brand: brand.name, model: m.name, powerW: m.powerW, pvVoltageRange: m.pvVoltageRange, mpptCount: m.mpptCount, maxPvPower: m.maxPvPower, maxPvCurrentPerMPPT: m.maxPvCurrentPerMPPT, price: m.price });
           }
         });
       });
@@ -634,7 +635,7 @@ export default function SolarCalculator() {
         stringsPerMPPT = Math.ceil(totalStrings / mpptCount);
 
         // Verify current per MPPT doesn't exceed limit (typical max 25A)
-        const maxCurrentPerMPPT = 25;
+        const maxCurrentPerMPPT = selectedInverterModelObj.maxPvCurrentPerMPPT || 25;
         const actualStringsPerMPPT = Math.min(stringsPerMPPT, Math.floor(maxCurrentPerMPPT / panelIsc));
         stringsPerMPPT = actualStringsPerMPPT;
 
@@ -650,6 +651,8 @@ export default function SolarCalculator() {
         totalStrings = actualTotalStrings;
       }
     }
+
+    const maxPvCurrentPerMPPT = selectedInverterModelObj?.maxPvCurrentPerMPPT || 0;
 
     setResults({
       totalPeakLoad,
@@ -707,6 +710,7 @@ export default function SolarCalculator() {
       mpptMaxV,
       mpptCount,
       hasMpptData,
+      maxPvCurrentPerMPPT,
     });
     setShowResults(true);
 
@@ -1423,7 +1427,7 @@ ${results ? `إجمالي الاستهلاك: ${formatNumber(results.totalDailyC
                     </Select>
                     {selectedInverterModel && inverterBrands[selectedInverterBrand]?.models[parseInt(selectedInverterModel)] && (
                       <p className="text-xs text-blue-600">
-                        {inverterBrands[selectedInverterBrand].name} | {inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].pvVoltageRange} PV | {inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].mpptCount} MPPT | {inverterBrands[selectedInverterBrand].notes}
+                        {inverterBrands[selectedInverterBrand].name} | {inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].pvVoltageRange} PV | {inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].mpptCount} MPPT | {inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].maxPvCurrentPerMPPT > 0 ? `${inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].maxPvCurrentPerMPPT}A/MPPT` : ""} {inverterBrands[selectedInverterBrand].notes}
                       </p>
                     )}
                   </div>
@@ -1598,35 +1602,55 @@ ${results ? `إجمالي الاستهلاك: ${formatNumber(results.totalDailyC
         {showResults && results && (
           <section id="results-section" className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div id="report-content" ref={reportRef}>
-              {/* Project info header for report */}
-              {(projectInfo.projectName || projectInfo.clientName || projectInfo.location) && (
-                <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50/50 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <FileText className="size-5 text-amber-600" />
-                    <h3 className="text-lg font-bold text-gray-800">معلومات المشروع</h3>
+              {/* Project Info Header for PDF */}
+              {(projectInfo.projectName || projectInfo.clientName) && (
+                <div className="mb-6 rounded-xl border border-amber-200 bg-gradient-to-l from-amber-50 to-orange-50 p-5 print:block">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="flex size-12 items-center justify-center rounded-lg bg-amber-500">
+                      <Sun className="size-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-bold text-amber-800">{projectInfo.projectName || "تقرير المنظومة الشمسية"}</h3>
+                      <p className="text-sm text-amber-600">تقرير التصميم الهندسي للمنظومة الشمسية</p>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-                    {projectInfo.projectName && (
-                      <div><span className="text-gray-500">المشروع:</span> <span className="font-semibold text-gray-800">{projectInfo.projectName}</span></div>
-                    )}
+                  <div className="grid grid-cols-2 gap-3 text-sm">
                     {projectInfo.clientName && (
-                      <div><span className="text-gray-500">العميل:</span> <span className="font-semibold text-gray-800">{projectInfo.clientName}</span></div>
+                      <div className="flex gap-2">
+                        <span className="text-gray-500">العميل:</span>
+                        <span className="font-semibold text-gray-800">{projectInfo.clientName}</span>
+                      </div>
                     )}
                     {projectInfo.location && (
-                      <div><span className="text-gray-500">الموقع:</span> <span className="font-semibold text-gray-800">{projectInfo.location}</span></div>
+                      <div className="flex gap-2">
+                        <span className="text-gray-500">الموقع:</span>
+                        <span className="font-semibold text-gray-800">{projectInfo.location}</span>
+                      </div>
                     )}
                     {projectInfo.date && (
-                      <div><span className="text-gray-500">التاريخ:</span> <span className="font-semibold text-gray-800">{projectInfo.date}</span></div>
+                      <div className="flex gap-2">
+                        <span className="text-gray-500">التاريخ:</span>
+                        <span className="font-semibold text-gray-800">{projectInfo.date}</span>
+                      </div>
                     )}
                     {projectInfo.engineerName && (
-                      <div><span className="text-gray-500">المهندس:</span> <span className="font-semibold text-gray-800">{projectInfo.engineerName}</span></div>
+                      <div className="flex gap-2">
+                        <span className="text-gray-500">المهندس:</span>
+                        <span className="font-semibold text-gray-800">{projectInfo.engineerName}</span>
+                      </div>
                     )}
                     {projectInfo.projectNumber && (
-                      <div><span className="text-gray-500">رقم المشروع:</span> <span className="font-semibold text-gray-800">{projectInfo.projectNumber}</span></div>
+                      <div className="flex gap-2">
+                        <span className="text-gray-500">رقم المشروع:</span>
+                        <span className="font-semibold text-gray-800">{projectInfo.projectNumber}</span>
+                      </div>
                     )}
                   </div>
                   {projectInfo.notes && (
-                    <div className="mt-2 text-sm"><span className="text-gray-500">ملاحظات:</span> <span className="text-gray-700">{projectInfo.notes}</span></div>
+                    <div className="mt-3 text-sm">
+                      <span className="text-gray-500">ملاحظات:</span>
+                      <span className="text-gray-700">{projectInfo.notes}</span>
+                    </div>
                   )}
                 </div>
               )}
@@ -2003,6 +2027,7 @@ ${results ? `إجمالي الاستهلاك: ${formatNumber(results.totalDailyC
                               <TableHead className="text-right font-bold text-gray-700 text-xs">مدى PV</TableHead>
                               <TableHead className="text-right font-bold text-gray-700 text-xs">MPPT</TableHead>
                               <TableHead className="text-right font-bold text-gray-700 text-xs">أقصى PV</TableHead>
+                              <TableHead className="text-right font-bold text-gray-700 text-xs">تيار MPPT</TableHead>
                               <TableHead className="text-right font-bold text-gray-700 text-xs">السعر</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -2020,6 +2045,7 @@ ${results ? `إجمالي الاستهلاك: ${formatNumber(results.totalDailyC
                                 <TableCell className="text-xs">{m.pvVoltageRange}</TableCell>
                                 <TableCell className="text-xs text-center">{m.mpptCount}</TableCell>
                                 <TableCell className="text-xs">{m.maxPvPower > 0 ? `${formatNumber(m.maxPvPower)}W` : "-"}</TableCell>
+                                <TableCell className="text-xs">{m.maxPvCurrentPerMPPT > 0 ? `${m.maxPvCurrentPerMPPT}A` : "-"}</TableCell>
                                 <TableCell className="text-xs font-semibold text-emerald-700">${formatUSD(m.price)}</TableCell>
                               </TableRow>
                             ))}
@@ -2197,6 +2223,11 @@ ${results ? `إجمالي الاستهلاك: ${formatNumber(results.totalDailyC
                           الحد الأقصى: <span className="font-semibold">{results.mpptMaxV}V</span> | 
                           عدد MPPT: <span className="font-semibold">{results.mpptCount}</span>
                         </div>
+                        {results.maxPvCurrentPerMPPT > 0 && (
+                          <div className="text-xs text-blue-700 mt-1">
+                            أقصى تيار PV لكل MPPT: <span className="font-semibold">{results.maxPvCurrentPerMPPT}A</span>
+                          </div>
+                        )}
                       </div>
 
                       <ResultRow
@@ -2247,18 +2278,80 @@ ${results ? `إجمالي الاستهلاك: ${formatNumber(results.totalDailyC
                         </div>
                       )}
 
-                      {/* Connection diagram */}
+                      {/* Connection Diagram */}
                       <Separator className="my-2 bg-orange-200" />
-                      <div className="rounded-lg bg-gradient-to-l from-orange-50 to-amber-50 p-4 text-center">
-                        <div className="flex items-center justify-center gap-2 mb-2">
+                      <div className="rounded-lg bg-gradient-to-l from-orange-50 to-amber-50 p-4">
+                        <div className="flex items-center justify-center gap-2 mb-3">
                           <Cable className="size-5 text-orange-600" />
-                          <span className="font-bold text-orange-800">مخطط التوصيل</span>
+                          <span className="font-bold text-orange-800">مخطط توصيل السلاسل</span>
                         </div>
-                        <div className="text-xl font-bold text-amber-700">
-                          {formatNumber(results.totalStrings)} سلسلة × {formatNumber(results.panelsPerString)} لوح
+                        
+                        {/* SVG Visual Diagram */}
+                        <div className="overflow-x-auto">
+                          <svg viewBox="0 0 600 200" className="w-full max-w-xl mx-auto" style={{ direction: "ltr" }}>
+                            {/* Inverter box */}
+                            <rect x="450" y="30" width="140" height="140" rx="8" fill="#EFF6FF" stroke="#3B82F6" strokeWidth="2" />
+                            <text x="520" y="55" textAnchor="middle" fill="#1E40AF" fontSize="12" fontWeight="bold">INVERTER</text>
+                            <text x="520" y="72" textAnchor="middle" fill="#3B82F6" fontSize="10">{selectedInverterModelObj?.name}</text>
+                            
+                            {/* MPPT inputs */}
+                            {Array.from({ length: Math.min(results.mpptCount, 3) }).map((_, i) => {
+                              const mpptY = 95 + i * 50;
+                              const stringsForThisMPPT = i < results.mpptCount ? results.stringsPerMPPT : 0;
+                              const mpptColors = ["#3B82F6", "#10B981", "#8B5CF6"];
+                              const mpptColor = mpptColors[i] || "#6B7280";
+                              return (
+                                <g key={i}>
+                                  {/* MPPT input label */}
+                                  <rect x="455" y={mpptY - 12} width="50" height="22" rx="4" fill={mpptColor} opacity="0.2" stroke={mpptColor} strokeWidth="1" />
+                                  <text x="480" y={mpptY + 3} textAnchor="middle" fill={mpptColor} fontSize="10" fontWeight="bold">MPPT{i + 1}</text>
+                                  
+                                  {/* Connection line from strings to MPPT */}
+                                  <line x1="400" y1={mpptY} x2="455" y2={mpptY} stroke={mpptColor} strokeWidth="2" strokeDasharray="4,2" />
+                                  
+                                  {/* String boxes for this MPPT */}
+                                  {Array.from({ length: Math.min(stringsForThisMPPT, 4) }).map((_, j) => {
+                                    const stringX = 10 + j * 100;
+                                    return (
+                                      <g key={j}>
+                                        {/* String container */}
+                                        <rect x={stringX} y={mpptY - 20} width={results.panelsPerString * 14 + 20} height="40" rx="6" fill="#FFF7ED" stroke={mpptColor} strokeWidth="1.5" strokeDasharray="3,1" />
+                                        
+                                        {/* Panel boxes inside string */}
+                                        {Array.from({ length: Math.min(results.panelsPerString, 5) }).map((_, k) => (
+                                          <g key={k}>
+                                            <rect x={stringX + 10 + k * 14} y={mpptY - 10} width="12" height="20" rx="2" fill="#FEF3C7" stroke="#F59E0B" strokeWidth="1" />
+                                          </g>
+                                        ))}
+                                        {results.panelsPerString > 5 && (
+                                          <text x={stringX + 10 + 5 * 14 + 5} y={mpptY + 5} fill="#92400E" fontSize="8">+{results.panelsPerString - 5}</text>
+                                        )}
+                                        
+                                        {/* String label */}
+                                        <text x={stringX + 10} y={mpptY - 24} fill={mpptColor} fontSize="8" fontWeight="bold">S{j + 1} ({results.panelsPerString}P)</text>
+                                        
+                                        {/* Connection line to MPPT bus */}
+                                        <line x1={stringX + 10 + Math.min(results.panelsPerString, 5) * 14 + 20} y1={mpptY} x2="400" y2={mpptY} stroke={mpptColor} strokeWidth="1" opacity="0.4" />
+                                      </g>
+                                    );
+                                  })}
+                                  {stringsForThisMPPT > 4 && (
+                                    <text x="10" y={mpptY + 35} fill={mpptColor} fontSize="9">... +{stringsForThisMPPT - 4} سلاسل إضافية</text>
+                                  )}
+                                </g>
+                              );
+                            })}
+                          </svg>
                         </div>
-                        <div className="text-sm text-gray-600 mt-1">
-                          إجمالي الألواح: {formatNumber(results.totalStrings * results.panelsPerString)} لوح (المطلوب: {formatNumber(results.numberOfPanels)} لوح)
+                        
+                        {/* Summary text */}
+                        <div className="text-center mt-3">
+                          <div className="text-xl font-bold text-amber-700">
+                            {formatNumber(results.totalStrings)} سلسلة × {formatNumber(results.panelsPerString)} لوح
+                          </div>
+                          <div className="text-sm text-gray-600 mt-1">
+                            إجمالي الألواح: {formatNumber(results.totalStrings * results.panelsPerString)} لوح (المطلوب: {formatNumber(results.numberOfPanels)} لوح)
+                          </div>
                         </div>
                       </div>
                     </>

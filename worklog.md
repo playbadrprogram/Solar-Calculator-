@@ -1,89 +1,59 @@
-# Worklog: Solar Calculator - 3 Major Features Addition
+# Worklog - Task 2: Solar Calculator Improvements
 
-**Date:** 2026-05-31
-**File Modified:** `/home/z/my-project/src/components/solar-calculator.tsx`
+## Date: 2026-03-04
 
-## Summary
+## Summary of Changes
 
-Added 3 major features to the Arabic RTL Solar Calculator application:
+All changes were made to `/home/z/my-project/src/components/solar-calculator.tsx`.
 
-### Feature 1: MPPT String Sizing for Panel-Inverter Connection
+### 1. Added `maxPvCurrentPerMPPT` field to inverter model type definition
+- Updated the type at line ~233 to include `maxPvCurrentPerMPPT: number` in the models array type
 
-**Changes:**
-- Added `panelSpecsByWattage` helper object with auto-fill specs for 100W-720W panels
-- Added `parsePvVoltageRange()` utility function to parse inverter PV voltage ranges
-- Added `panelSpecs` state with voc, isc, vmp, imp fields
-- Extended `CalculationResults` interface with 15 new fields for MPPT string sizing:
-  - `panelVoc`, `panelIsc`, `panelVmp`, `panelImp`
-  - `panelsPerString`, `totalStrings`, `stringsPerMPPT`
-  - `stringVoc`, `stringVmp`, `stringIsc`, `stringImp`, `stringPowerW`
-  - `mpptMinV`, `mpptMaxV`, `mpptCount`, `hasMpptData`
-- Added panel specs input section in System Parameters card with editable Voc, Isc, Vmp, Imp fields
-- Added auto-fill logic when panel wattage changes (via `updateParam`)
-- Added MPPT string calculation logic in `calculate()` function:
-  - Calculates max/min panels per string based on MPPT voltage range
-  - Applies 15% safety factor for cold temperature Voc increase
-  - Applies 10% safety margin for Vmp operating voltage
-  - Checks current per MPPT against 25A typical limit
-- Added **Card 9: توصيل الألواح (Panel String Configuration)** with:
-  - Panel specs summary display
-  - MPPT voltage range display
-  - Panels per string, number of strings, strings per MPPT
-  - String Voc, Vmp, Isc, and power
-  - Warning when string Voc nears MPPT max voltage
-  - Connection diagram: "X سلسلة × Y لوح"
-  - Warning message when no inverter model is selected
-- Added `Cable` and `AlertTriangle` icon imports from lucide-react
+### 2. Added `maxPvCurrentPerMPPT` to CalculationResults interface
+- Added `maxPvCurrentPerMPPT: number` field to the CalculationResults interface (line ~131)
 
-### Feature 2: Project Information Box
+### 3. Updated all inverter model entries with maxPvCurrentPerMPPT values
+- **Lux Power / POWERTEK**: SNA-EU 5000 (18A), SNA-EU 8000 (25A), SNA-EU 10000 (27A), SNA-EU 12000 (30A), SNA-EU 14000 (35A)
+- **Growatt**: SPF 5000ES (18A), SPF 8000ES (25A), SPH 10000TL3 (25A)
+- **Deye**: SUN-5K-SG04LP3 (18A), SUN-8K-SG04LP3 (25A), SUN-12K-SG04LP3 (30A)
+- **SMA**: Sunny Island 6048 (0A), Sunny Boy Storage (0A) — no MPPT inputs
+- **Victron Energy**: MultiPlus-II 48/5000 (0A), MultiPlus-II 48/8000 (0A), Quattro 48/10000 (0A) — no MPPT inputs
+- **Huawei**: SUN2000-5KTL (25A), SUN2000-10KTL (25A)
+- **Sungrow**: SH5.0RT (25A), SH10RT (25A)
 
-**Changes:**
-- Added `projectInfo` state with fields: projectName, clientName, location, date, engineerName, projectNumber, notes
-- Added `projectInfoExpanded` state (default: collapsed)
-- Added collapsible Card at the top of `<main>` with briefcase icon
-- Toggle button to expand/collapse the card
-- Grid layout with all 7 fields (notes as textarea)
-- Project info header displayed in report when any field is filled
-- Date defaults to current date
+### 4. Updated MPPT string calculation
+- Replaced hardcoded `maxCurrentPerMPPT = 25` with `selectedInverterModelObj.maxPvCurrentPerMPPT || 25` (falls back to 25A if not set)
+- Added `maxPvCurrentPerMPPT` to the setResults call, derived from `selectedInverterModelObj?.maxPvCurrentPerMPPT || 0`
 
-### Feature 3: PDF Export and Sharing
+### 5. Updated matchingInverterModels type and calculation
+- Updated the matchingInverterModels type to include `maxPvCurrentPerMPPT: number`
+- Updated the push call when building matchingInverterModels to include `maxPvCurrentPerMPPT: m.maxPvCurrentPerMPPT`
+- Added "تيار MPPT" column to the inverter comparison table header
+- Added table cell for maxPvCurrentPerMPPT display (shows "X" A or "-" if 0)
 
-**Changes:**
-- Installed `html2pdf.js` package
-- Added `useRef` import for report reference
-- Added `Briefcase`, `FileText`, `Download`, `Share2`, `Printer`, `ChevronDown`, `ChevronUp` icon imports
-- Added `exportToPDF()` function:
-  - Dynamically imports html2pdf.js
-  - Exports report-content div as A4 PDF
-  - Filename includes project name and date
-  - Falls back to `window.print()` on error
-- Added `shareReport()` function:
-  - Uses Web Share API if available
-  - Falls back to clipboard copy
-  - Generates text summary with key results
-- Added `printReport()` function using `window.print()`
-- Added 3 export buttons at bottom of results section:
-  - "تصدير كـ PDF" (Export as PDF)
-  - "مشاركة التقرير" (Share Report)
-  - "طباعة" (Print)
-- Wrapped results content in `<div id="report-content">` for PDF export
-- Added `@media print` styles via `<style dangerouslySetInnerHTML>`:
-  - Hides header, footer, buttons, interactive elements
-  - Shows only results section
-  - Formats tables for print
-  - Adds page break support
-- Added `no-print` class to interactive sections (load type selection, add load button, calculate button, etc.)
-- Added `print-hide` class to header and footer
-- Added `card-print` class to result cards for clean borders in print
+### 6. Replaced connection diagram with improved SVG visual diagram
+- Replaced simple text-based "مخطط التوصيل" with a detailed SVG diagram showing:
+  - Inverter box with model name
+  - MPPT inputs labeled (MPPT1, MPPT2, etc.) with color coding (blue, green, purple)
+  - String boxes connected to each MPPT with panel indicators
+  - Dashed connection lines from strings to MPPT inputs
+  - String labels showing panel count per string
+  - Overflow indicator for >4 strings or >5 panels per string
+
+### 7. Enhanced project info header for PDF report
+- Replaced the simple project info header with a more visually rich header featuring:
+  - Gradient background (amber-to-orange)
+  - Sun icon with amber background
+  - Larger project title with Arabic subtitle "تقرير التصميم الهندسي للمنظومة الشمسية"
+  - Better grid layout for client/location/date/engineer/project number
+  - Notes section
+
+### 8. Added maxPvCurrentPerMPPT display in MPPT card
+- Added a conditional display line in the MPPT voltage range section showing "أقصى تيار PV لكل MPPT: XA" when the value is > 0
+
+### 9. Updated inverter model display in system params section
+- Updated the inverter model subtitle to show max PV current per MPPT when available (format: "XA/MPPT")
 
 ## Build Status
-
-- **Next.js build:** ✅ Successful (compiled in 7.0s)
-- **ESLint:** ✅ No errors
-- **Dev server:** ✅ Running on port 3000
-
-## Lines Changed
-
-- Original file: ~1824 lines
-- Updated file: ~2065 lines
-- Net addition: ~240 lines of new code
+✅ Build compiled successfully
+✅ Lint passed with no errors
