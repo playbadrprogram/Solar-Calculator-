@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   Sun,
   SunMedium,
@@ -15,6 +15,15 @@ import {
   Calculator,
   Lightbulb,
   Sparkles,
+  Briefcase,
+  FileText,
+  Download,
+  Share2,
+  Printer,
+  ChevronDown,
+  ChevronUp,
+  Cable,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -102,6 +111,42 @@ interface CalculationResults {
   selectedInverterSpecs: string;
   matchingBatteryModels: { brand: string; model: string; voltage: number; capacityAh: number; energyKWh: number; price: number }[];
   matchingInverterModels: { brand: string; model: string; powerW: number; pvVoltageRange: string; mpptCount: number; maxPvPower: number; price: number }[];
+  // MPPT String sizing
+  panelVoc: number;
+  panelIsc: number;
+  panelVmp: number;
+  panelImp: number;
+  panelsPerString: number;
+  totalStrings: number;
+  stringsPerMPPT: number;
+  stringVoc: number;
+  stringVmp: number;
+  stringIsc: number;
+  stringImp: number;
+  stringPowerW: number;
+  mpptMinV: number;
+  mpptMaxV: number;
+  mpptCount: number;
+  hasMpptData: boolean;
+}
+
+// Panel specs auto-fill helper
+const panelSpecsByWattage: Record<number, { voc: number; isc: number; vmp: number; imp: number }> = {
+  100: { voc: 22, isc: 6, vmp: 18, imp: 5.5 },
+  200: { voc: 33, isc: 9, vmp: 27, imp: 7.4 },
+  300: { voc: 40, isc: 10, vmp: 33, imp: 9.1 },
+  400: { voc: 45, isc: 11, vmp: 37, imp: 10.8 },
+  550: { voc: 49, isc: 14, vmp: 41, imp: 13.4 },
+  600: { voc: 50, isc: 14.5, vmp: 42, imp: 14.3 },
+  720: { voc: 52, isc: 15, vmp: 43, imp: 16.7 },
+};
+
+// Parse PV voltage range from inverter specs
+function parsePvVoltageRange(range: string): { minV: number; maxV: number } {
+  if (!range || range === "-") return { minV: 0, maxV: 0 };
+  const match = range.match(/(\d+)-(\d+)V/);
+  if (match) return { minV: parseInt(match[1]), maxV: parseInt(match[2]) };
+  return { minV: 0, maxV: 0 };
 }
 
 // Default load presets
@@ -303,6 +348,24 @@ export default function SolarCalculator() {
   const [selectedInverterBrand, setSelectedInverterBrand] = useState<string>("");
   const [selectedInverterModel, setSelectedInverterModel] = useState<string>("");
 
+  // Panel specs state
+  const [panelSpecs, setPanelSpecs] = useState<{ voc: number; isc: number; vmp: number; imp: number }>(
+    panelSpecsByWattage[550] || { voc: 49, isc: 14, vmp: 41, imp: 13.4 }
+  );
+
+  // Project info state
+  const [projectInfo, setProjectInfo] = useState({
+    projectName: "",
+    clientName: "",
+    location: "",
+    date: new Date().toISOString().split("T")[0],
+    engineerName: "",
+    projectNumber: "",
+    notes: "",
+  });
+  const [projectInfoExpanded, setProjectInfoExpanded] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
+
   // Handle load type switch
   const handleLoadTypeChange = useCallback((type: "residential" | "industrial") => {
     setLoadType(type);
@@ -353,6 +416,13 @@ export default function SolarCalculator() {
         next.backupDays = 0;
       } else if (key === "systemType" && value !== "on-grid" && next.backupDays === 0) {
         next.backupDays = 2;
+      }
+      // When panel wattage changes, auto-fill panel specs
+      if (key === "panelWattage") {
+        const specs = panelSpecsByWattage[Number(value)];
+        if (specs) {
+          setPanelSpecs(specs);
+        }
       }
       return next;
     });
@@ -517,6 +587,70 @@ export default function SolarCalculator() {
       });
     matchingInverterModels.sort((a, b) => Math.abs(a.powerW - recommendedInverter) - Math.abs(b.powerW - recommendedInverter));
 
+    // MPPT String Calculation
+    let panelVoc = panelSpecs.voc;
+    let panelIsc = panelSpecs.isc;
+    let panelVmp = panelSpecs.vmp;
+    let panelImp = panelSpecs.imp;
+    let panelsPerString = 0;
+    let totalStrings = 0;
+    let stringsPerMPPT = 0;
+    let stringVoc = 0;
+    let stringVmp = 0;
+    let stringIsc = panelIsc;
+    let stringImp = panelImp;
+    let stringPowerW = 0;
+    let mpptMinV = 0;
+    let mpptMaxV = 0;
+    let mpptCount = 0;
+    let hasMpptData = false;
+
+    if (selectedInverterModelObj && selectedInverterModelObj.mpptCount > 0) {
+      hasMpptData = true;
+      const pvRange = parsePvVoltageRange(selectedInverterModelObj.pvVoltageRange);
+      mpptMinV = pvRange.minV;
+      mpptMaxV = pvRange.maxV;
+      mpptCount = selectedInverterModelObj.mpptCount;
+
+      if (mpptMaxV > 0 && panelVoc > 0) {
+        // Calculate max panels per string (series) with cold temperature safety factor
+        const maxPanelsPerString = Math.floor(mpptMaxV / (panelVoc * 1.15));
+        // Calculate min panels per string to reach MPPT start voltage
+        const minPanelsPerString = panelVmp > 0 ? Math.ceil(mpptMinV / panelVmp) : 1;
+        // Optimal panels per string (use Vmp for operating voltage with 10% safety margin)
+        let optimalPanelsPerString = panelVmp > 0 ? Math.floor(mpptMaxV / (panelVmp * 1.1)) : 1;
+        // If optimal is less than min, use min
+        if (optimalPanelsPerString < minPanelsPerString) optimalPanelsPerString = minPanelsPerString;
+        if (optimalPanelsPerString > maxPanelsPerString) optimalPanelsPerString = maxPanelsPerString;
+        // Ensure at least 1
+        if (optimalPanelsPerString < 1) optimalPanelsPerString = 1;
+
+        panelsPerString = optimalPanelsPerString;
+
+        // Number of strings needed
+        totalStrings = Math.ceil(numberOfPanels / panelsPerString);
+
+        // Strings per MPPT
+        stringsPerMPPT = Math.ceil(totalStrings / mpptCount);
+
+        // Verify current per MPPT doesn't exceed limit (typical max 25A)
+        const maxCurrentPerMPPT = 25;
+        const actualStringsPerMPPT = Math.min(stringsPerMPPT, Math.floor(maxCurrentPerMPPT / panelIsc));
+        stringsPerMPPT = actualStringsPerMPPT;
+
+        // Actual configuration
+        const actualTotalStrings = Math.ceil(numberOfPanels / panelsPerString);
+
+        // String voltage calculations
+        stringVoc = panelsPerString * panelVoc;
+        stringVmp = panelsPerString * panelVmp;
+        stringIsc = panelIsc;
+        stringImp = panelImp;
+        stringPowerW = panelsPerString * params.panelWattage;
+        totalStrings = actualTotalStrings;
+      }
+    }
+
     setResults({
       totalPeakLoad,
       totalDailyConsumptionWh,
@@ -557,6 +691,22 @@ export default function SolarCalculator() {
       selectedInverterSpecs,
       matchingBatteryModels,
       matchingInverterModels,
+      panelVoc,
+      panelIsc,
+      panelVmp,
+      panelImp,
+      panelsPerString,
+      totalStrings,
+      stringsPerMPPT,
+      stringVoc,
+      stringVmp,
+      stringIsc,
+      stringImp,
+      stringPowerW,
+      mpptMinV,
+      mpptMaxV,
+      mpptCount,
+      hasMpptData,
     });
     setShowResults(true);
 
@@ -564,16 +714,82 @@ export default function SolarCalculator() {
     setTimeout(() => {
       document.getElementById("results-section")?.scrollIntoView({ behavior: "smooth" });
     }, 100);
-  }, [loads, params, selectedBatteryBrand, selectedBatteryModel, selectedInverterBrand, selectedInverterModel]);
+  }, [loads, params, selectedBatteryBrand, selectedBatteryModel, selectedInverterBrand, selectedInverterModel, panelSpecs]);
 
   // Compute totals for display
   const totalPeakLoad = loads.reduce((sum, l) => sum + l.quantity * l.power, 0);
   const totalDailyEnergy = loads.reduce((sum, l) => sum + l.quantity * l.power * l.hours, 0);
 
+  // PDF Export
+  const exportToPDF = async () => {
+    const element = document.getElementById("report-content");
+    if (!element) return;
+
+    try {
+      const html2pdf = (await import("html2pdf.js")).default;
+      const opt = {
+        margin: [10, 10, 10, 10] as number[],
+        filename: `solar-report-${projectInfo.projectName || "untitled"}-${projectInfo.date}.pdf`,
+        image: { type: "jpeg" as const, quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+        jsPDF: { unit: "mm" as const, format: "a4" as const, orientation: "portrait" as const },
+      };
+      await html2pdf().set(opt).from(element).save();
+    } catch {
+      // Fallback to print
+      window.print();
+    }
+  };
+
+  // Share report
+  const shareReport = async () => {
+    const summary = `تقرير المنظومة الشمسية${projectInfo.projectName ? ` - ${projectInfo.projectName}` : ""}
+${projectInfo.clientName ? `العميل: ${projectInfo.clientName}` : ""}
+${results ? `إجمالي الاستهلاك: ${formatNumber(results.totalDailyConsumptionKWh, 2)} كيلوواط·س
+عدد الألواح: ${formatNumber(results.numberOfPanels)} لوح
+العاكس الموصى: ${formatNumber(results.recommendedInverter)} واط
+التكلفة التقريبية: $${formatUSD(Math.round(results.totalCost))}` : ""}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `تقرير المنظومة الشمسية${projectInfo.projectName ? ` - ${projectInfo.projectName}` : ""}`,
+          text: summary,
+        });
+      } catch {
+        // User cancelled or error
+        await navigator.clipboard.writeText(summary);
+      }
+    } else {
+      await navigator.clipboard.writeText(summary);
+    }
+  };
+
+  // Print
+  const printReport = () => {
+    window.print();
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-50 via-orange-50/30 to-white">
+      {/* Print styles */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          header, footer, .no-print, button, .print-hide { display: none !important; }
+          #report-content { 
+            display: block !important; 
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          body { background: white !important; }
+          .print-break { page-break-before: always; }
+          table { page-break-inside: avoid; }
+          .card-print { border: 1px solid #ddd !important; box-shadow: none !important; }
+        }
+      `}} />
+
       {/* Header */}
-      <header className="relative overflow-hidden bg-gradient-to-l from-amber-500 via-orange-500 to-amber-600">
+      <header className="relative overflow-hidden bg-gradient-to-l from-amber-500 via-orange-500 to-amber-600 print-hide">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.15),transparent_70%)]" />
         <div className="relative mx-auto max-w-6xl px-4 py-8 sm:py-12">
           <div className="flex flex-col items-center gap-4 text-center">
@@ -607,8 +823,104 @@ export default function SolarCalculator() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
-        {/* Load Type Selection */}
+        {/* Project Information - Feature 2 */}
         <section className="mb-8">
+          <Card className="border-amber-200/60 shadow-sm">
+            <CardHeader className="pb-2 cursor-pointer" onClick={() => setProjectInfoExpanded(!projectInfoExpanded)}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-amber-100">
+                    <Briefcase className="size-4 text-amber-600" />
+                  </div>
+                  <CardTitle className="text-lg text-gray-800">معلومات المشروع</CardTitle>
+                </div>
+                <Button variant="ghost" size="sm" className="gap-1 text-amber-700 no-print">
+                  {projectInfoExpanded ? (
+                    <>
+                      <ChevronUp className="size-4" />
+                      إخفاء
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="size-4" />
+                      عرض
+                    </>
+                  )}
+                </Button>
+              </div>
+              <CardDescription>
+                أدخل معلومات المشروع لتضمينها في التقرير
+              </CardDescription>
+            </CardHeader>
+            {projectInfoExpanded && (
+              <CardContent>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label className="text-gray-700">اسم المشروع</Label>
+                    <Input
+                      value={projectInfo.projectName}
+                      onChange={(e) => setProjectInfo(prev => ({ ...prev, projectName: e.target.value }))}
+                      placeholder="اسم المشروع"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-700">اسم العميل</Label>
+                    <Input
+                      value={projectInfo.clientName}
+                      onChange={(e) => setProjectInfo(prev => ({ ...prev, clientName: e.target.value }))}
+                      placeholder="اسم العميل"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-700">الموقع</Label>
+                    <Input
+                      value={projectInfo.location}
+                      onChange={(e) => setProjectInfo(prev => ({ ...prev, location: e.target.value }))}
+                      placeholder="الموقع"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-700">التاريخ</Label>
+                    <Input
+                      type="date"
+                      value={projectInfo.date}
+                      onChange={(e) => setProjectInfo(prev => ({ ...prev, date: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-700">اسم المهندس</Label>
+                    <Input
+                      value={projectInfo.engineerName}
+                      onChange={(e) => setProjectInfo(prev => ({ ...prev, engineerName: e.target.value }))}
+                      placeholder="اسم المهندس"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-700">رقم المشروع</Label>
+                    <Input
+                      value={projectInfo.projectNumber}
+                      onChange={(e) => setProjectInfo(prev => ({ ...prev, projectNumber: e.target.value }))}
+                      placeholder="رقم المشروع"
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+                    <Label className="text-gray-700">ملاحظات</Label>
+                    <textarea
+                      value={projectInfo.notes}
+                      onChange={(e) => setProjectInfo(prev => ({ ...prev, notes: e.target.value }))}
+                      placeholder="ملاحظات إضافية..."
+                      rows={3}
+                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+        </section>
+
+        {/* Load Type Selection */}
+        <section className="mb-8 no-print">
           <div className="mb-4 flex items-center gap-2">
             <Lightbulb className="size-5 text-amber-600" />
             <h2 className="text-xl font-bold text-gray-800 sm:text-2xl">نوع الأحمال</h2>
@@ -699,7 +1011,7 @@ export default function SolarCalculator() {
                   onClick={addLoad}
                   variant="outline"
                   size="sm"
-                  className="gap-1 border-amber-300 text-amber-700 hover:bg-amber-50"
+                  className="gap-1 border-amber-300 text-amber-700 hover:bg-amber-50 no-print"
                 >
                   <Plus className="size-4" />
                   إضافة حمل
@@ -720,7 +1032,7 @@ export default function SolarCalculator() {
                       <TableHead className="text-right font-bold text-gray-700">ساعات التشغيل</TableHead>
                       <TableHead className="text-right font-bold text-gray-700">القدرة الإجمالية (واط)</TableHead>
                       <TableHead className="text-right font-bold text-gray-700">الطاقة اليومية (واط·س)</TableHead>
-                      <TableHead className="text-center font-bold text-gray-700">حذف</TableHead>
+                      <TableHead className="text-center font-bold text-gray-700 no-print">حذف</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -772,7 +1084,7 @@ export default function SolarCalculator() {
                           <TableCell className="font-semibold text-orange-700">
                             {formatNumber(dailyEnergy)} واط·س
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center no-print">
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1118,6 +1430,77 @@ export default function SolarCalculator() {
                 )}
               </div>
 
+              {/* Panel Specs Section - Feature 1 */}
+              <Separator className="my-6 bg-amber-200" />
+              <div className="flex items-center gap-2 mb-4">
+                <Cable className="size-5 text-amber-600" />
+                <h3 className="text-lg font-bold text-gray-800">مواصفات اللوح الشمسي</h3>
+                <Badge variant="outline" className="border-amber-300 text-amber-700 text-xs">
+                  {params.panelWattage}W
+                </Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <div className="space-y-2">
+                  <Label className="text-gray-700 text-sm">جهد الدائرة المفتوحة (Voc)</Label>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      min={1}
+                      step={0.1}
+                      value={panelSpecs.voc}
+                      onChange={(e) => setPanelSpecs(prev => ({ ...prev, voc: Number(e.target.value) || 0 }))}
+                      className="text-sm"
+                    />
+                    <span className="text-xs text-gray-500 shrink-0">V</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-gray-700 text-sm">تيار القصر (Isc)</Label>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      min={0.1}
+                      step={0.1}
+                      value={panelSpecs.isc}
+                      onChange={(e) => setPanelSpecs(prev => ({ ...prev, isc: Number(e.target.value) || 0 }))}
+                      className="text-sm"
+                    />
+                    <span className="text-xs text-gray-500 shrink-0">A</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-gray-700 text-sm">جهد أقصى قدرة (Vmp)</Label>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      min={1}
+                      step={0.1}
+                      value={panelSpecs.vmp}
+                      onChange={(e) => setPanelSpecs(prev => ({ ...prev, vmp: Number(e.target.value) || 0 }))}
+                      className="text-sm"
+                    />
+                    <span className="text-xs text-gray-500 shrink-0">V</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-gray-700 text-sm">تيار أقصى قدرة (Imp)</Label>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      min={0.1}
+                      step={0.1}
+                      value={panelSpecs.imp}
+                      onChange={(e) => setPanelSpecs(prev => ({ ...prev, imp: Number(e.target.value) || 0 }))}
+                      className="text-sm"
+                    />
+                    <span className="text-xs text-gray-500 shrink-0">A</span>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                * يتم ملء هذه القيم تلقائياً عند اختيار قدرة اللوح، ويمكنك تعديلها يدوياً
+              </p>
+
               {/* Sliders */}
               <div className="mt-8 grid grid-cols-1 gap-8 sm:grid-cols-3">
                 {/* Battery DoD */}
@@ -1199,7 +1582,7 @@ export default function SolarCalculator() {
         </section>
 
         {/* Calculate Button */}
-        <section className="mb-10 flex justify-center">
+        <section className="mb-10 flex justify-center no-print">
           <Button
             onClick={calculate}
             size="lg"
@@ -1214,303 +1597,337 @@ export default function SolarCalculator() {
         {/* Results Section */}
         {showResults && results && (
           <section id="results-section" className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="size-1 rounded-full bg-amber-500" />
-              <div className="size-1 rounded-full bg-orange-500" />
-              <div className="size-1 rounded-full bg-amber-500" />
-              <h2 className="text-2xl font-bold text-gray-800">نتائج الحساب</h2>
-              <div className="size-1 rounded-full bg-amber-500" />
-              <div className="size-1 rounded-full bg-orange-500" />
-              <div className="size-1 rounded-full bg-amber-500" />
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              {/* Card 1: Load Summary */}
-              <Card className="border-amber-200/60 shadow-sm overflow-hidden">
-                <div className="h-1 bg-gradient-to-l from-amber-400 to-orange-500" />
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <div className="flex size-10 items-center justify-center rounded-lg bg-amber-100">
-                      <Zap className="size-5 text-amber-600" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg text-gray-800">ملخص الأحمال</CardTitle>
-                      <CardDescription>ملخص استهلاك الأحمال الكهربائية</CardDescription>
-                    </div>
+            <div id="report-content" ref={reportRef}>
+              {/* Project info header for report */}
+              {(projectInfo.projectName || projectInfo.clientName || projectInfo.location) && (
+                <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50/50 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <FileText className="size-5 text-amber-600" />
+                    <h3 className="text-lg font-bold text-gray-800">معلومات المشروع</h3>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <ResultRow
-                    label="إجمالي القدرة اللحظية"
-                    value={formatNumber(results.totalPeakLoad)}
-                    unit="واط"
-                  />
-                  <ResultRow
-                    label="إجمالي الاستهلاك اليومي"
-                    value={formatNumber(results.totalDailyConsumptionKWh, 2)}
-                    unit="كيلوواط·س"
-                  />
-                  <ResultRow
-                    label="إجمالي الاستهلاك الشهري"
-                    value={formatNumber(results.totalMonthlyConsumptionKWh, 1)}
-                    unit="كيلوواط·س"
-                  />
-                </CardContent>
-              </Card>
-
-              {/* Card 2: Solar Panels */}
-              <Card className="border-amber-200/60 shadow-sm overflow-hidden">
-                <div className="h-1 bg-gradient-to-l from-yellow-400 to-amber-500" />
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <div className="flex size-10 items-center justify-center rounded-lg bg-yellow-100">
-                      <SunMedium className="size-5 text-yellow-600" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg text-gray-800">الألواح الشمسية</CardTitle>
-                      <CardDescription>حساب عدد وقدرة الألواح المطلوبة</CardDescription>
-                    </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+                    {projectInfo.projectName && (
+                      <div><span className="text-gray-500">المشروع:</span> <span className="font-semibold text-gray-800">{projectInfo.projectName}</span></div>
+                    )}
+                    {projectInfo.clientName && (
+                      <div><span className="text-gray-500">العميل:</span> <span className="font-semibold text-gray-800">{projectInfo.clientName}</span></div>
+                    )}
+                    {projectInfo.location && (
+                      <div><span className="text-gray-500">الموقع:</span> <span className="font-semibold text-gray-800">{projectInfo.location}</span></div>
+                    )}
+                    {projectInfo.date && (
+                      <div><span className="text-gray-500">التاريخ:</span> <span className="font-semibold text-gray-800">{projectInfo.date}</span></div>
+                    )}
+                    {projectInfo.engineerName && (
+                      <div><span className="text-gray-500">المهندس:</span> <span className="font-semibold text-gray-800">{projectInfo.engineerName}</span></div>
+                    )}
+                    {projectInfo.projectNumber && (
+                      <div><span className="text-gray-500">رقم المشروع:</span> <span className="font-semibold text-gray-800">{projectInfo.projectNumber}</span></div>
+                    )}
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <ResultRow
-                    label="إجمالي القدرة المطلوبة من الألواح"
-                    value={formatNumber(Math.round(results.requiredSolarCapacity))}
-                    unit="واط"
-                  />
-                  <ResultRow
-                    label="عدد الألواح الشمسية المطلوبة"
-                    value={formatNumber(results.numberOfPanels)}
-                    unit="لوح"
-                    highlight
-                  />
-                  <ResultRow
-                    label="قدرة اللوح الواحد"
-                    value={formatNumber(params.panelWattage)}
-                    unit="واط"
-                  />
-                  <ResultRow
-                    label="المساحة التقريبية للألواح"
-                    value={formatNumber(results.panelArea, 1)}
-                    unit="م²"
-                  />
-                </CardContent>
-              </Card>
-
-              {/* Card 3: Batteries */}
-              <Card className="border-amber-200/60 shadow-sm overflow-hidden">
-                <div className="h-1 bg-gradient-to-l from-green-400 to-emerald-500" />
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <div className="flex size-10 items-center justify-center rounded-lg bg-green-100">
-                      <Battery className="size-5 text-green-600" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg text-gray-800">البطاريات</CardTitle>
-                      <CardDescription>
-                        {params.systemType === "on-grid" ? "لا حاجة للبطاريات في المنظومة المتصلة بالشبكة" : "حساب بنك البطاريات المطلوب"}
-                      </CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {params.systemType === "on-grid" ? (
-                    <div className="rounded-lg bg-blue-50 p-4 text-center">
-                      <p className="text-sm text-blue-700 font-semibold">المنظومة متصلة بالشبكة</p>
-                      <p className="text-xs text-blue-500 mt-1">لا حاجة لبطاريات - يتم بيع الفائض للشبكة مباشرة</p>
-                    </div>
-                  ) : (
-                    <>
-                      <ResultRow
-                        label="نوع البطارية"
-                        value={results.batteryTypeName}
-                        unit=""
-                        highlight
-                      />
-                      <ResultRow
-                        label="سعة المخزن المطلوبة"
-                        value={`${formatNumber(Math.round(results.usableStorageWh))} واط·س (${formatNumber(results.usableStorageKWh, 2)} كيلوواط·ساعة)`}
-                        unit=""
-                      />
-                      <ResultRow
-                        label="عدد البطاريات المطلوبة"
-                        value={formatNumber(results.actualTotalBatteries)}
-                        unit="بطارية"
-                        highlight
-                      />
-                      <ResultRow
-                        label="سعة البطارية الواحدة"
-                        value={`${formatNumber(params.batteryCapacity)} أمبير·ساعة (${formatNumber(results.batteryCapacityKWh, 1)} كيلوواط·ساعة)`}
-                        unit=""
-                      />
-                      <ResultRow
-                        label="توصيل البطاريات"
-                        value={`${formatNumber(results.seriesBatteries)} سلسل × ${formatNumber(results.parallelBatteries)} توازي`}
-                        unit=""
-                      />
-                      <ResultRow
-                        label="إجمالي الطاقة المخزنة"
-                        value={`${formatNumber(results.totalStoredEnergy, 2)} كيلوواط·س (${formatNumber(results.totalStoredEnergyKWh, 2)} كيلوواط·ساعة)`}
-                        unit=""
-                      />
-                      {results.selectedBatteryModelName && (
-                        <>
-                          <Separator className="my-2 bg-green-200" />
-                          <div className="rounded-lg bg-green-50 p-3">
-                            <h4 className="font-bold text-green-800 text-sm mb-2 flex items-center gap-1">
-                              <Battery className="size-4 text-green-500" />
-                              البطارية المحددة
-                            </h4>
-                            <p className="font-semibold text-green-900 text-sm">{results.selectedBatteryModelName}</p>
-                            <p className="text-xs text-green-700 mt-1">{results.selectedBatterySpecs}</p>
-                          </div>
-                        </>
-                      )}
-                    </>
+                  {projectInfo.notes && (
+                    <div className="mt-2 text-sm"><span className="text-gray-500">ملاحظات:</span> <span className="text-gray-700">{projectInfo.notes}</span></div>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              )}
 
-              {/* Card 4: Inverter */}
-              <Card className="border-amber-200/60 shadow-sm overflow-hidden">
-                <div className="h-1 bg-gradient-to-l from-blue-400 to-indigo-500" />
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <div className="flex size-10 items-center justify-center rounded-lg bg-blue-100">
-                      <Zap className="size-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg text-gray-800">العاكس</CardTitle>
-                      <CardDescription>حساب قدرة العاكس المطلوبة</CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <ResultRow
-                    label="قدرة العاكس المطلوبة"
-                    value={formatNumber(results.inverterCapacity)}
-                    unit="واط"
-                  />
-                  <ResultRow
-                    label="قدرة العاكس الموصى بها"
-                    value={formatNumber(results.recommendedInverter)}
-                    unit="واط"
-                    highlight
-                  />
-                  <ResultRow
-                    label="جهد الدخول"
-                    value={formatNumber(params.systemVoltage)}
-                    unit="فولت تيار مستمر"
-                  />
-                  <ResultRow
-                    label="جهد الخرج"
-                    value="220"
-                    unit="فولت تيار متردد"
-                  />
-                  {results.selectedInverterModelName && (
-                    <>
-                      <Separator className="my-2 bg-blue-200" />
-                      <div className="rounded-lg bg-blue-50 p-3">
-                        <h4 className="font-bold text-blue-800 text-sm mb-2 flex items-center gap-1">
-                          <Zap className="size-4 text-blue-500" />
-                          العاكس المحدد
-                        </h4>
-                        <p className="font-semibold text-blue-900 text-sm">{results.selectedInverterModelName}</p>
-                        <p className="text-xs text-blue-700 mt-1">{results.selectedInverterSpecs}</p>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="size-1 rounded-full bg-amber-500" />
+                <div className="size-1 rounded-full bg-orange-500" />
+                <div className="size-1 rounded-full bg-amber-500" />
+                <h2 className="text-2xl font-bold text-gray-800">نتائج الحساب</h2>
+                <div className="size-1 rounded-full bg-amber-500" />
+                <div className="size-1 rounded-full bg-orange-500" />
+                <div className="size-1 rounded-full bg-amber-500" />
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                {/* Card 1: Load Summary */}
+                <Card className="border-amber-200/60 shadow-sm overflow-hidden card-print">
+                  <div className="h-1 bg-gradient-to-l from-amber-400 to-orange-500" />
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <div className="flex size-10 items-center justify-center rounded-lg bg-amber-100">
+                        <Zap className="size-5 text-amber-600" />
                       </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
+                      <div>
+                        <CardTitle className="text-lg text-gray-800">ملخص الأحمال</CardTitle>
+                        <CardDescription>ملخص استهلاك الأحمال الكهربائية</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <ResultRow
+                      label="إجمالي القدرة اللحظية"
+                      value={formatNumber(results.totalPeakLoad)}
+                      unit="واط"
+                    />
+                    <ResultRow
+                      label="إجمالي الاستهلاك اليومي"
+                      value={formatNumber(results.totalDailyConsumptionKWh, 2)}
+                      unit="كيلوواط·س"
+                    />
+                    <ResultRow
+                      label="إجمالي الاستهلاك الشهري"
+                      value={formatNumber(results.totalMonthlyConsumptionKWh, 1)}
+                      unit="كيلوواط·س"
+                    />
+                  </CardContent>
+                </Card>
 
-              {/* Card 5: Charge Controller */}
-              <Card className="border-amber-200/60 shadow-sm overflow-hidden">
-                <div className="h-1 bg-gradient-to-l from-purple-400 to-violet-500" />
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <div className="flex size-10 items-center justify-center rounded-lg bg-purple-100">
-                      <Gauge className="size-5 text-purple-600" />
+                {/* Card 2: Solar Panels */}
+                <Card className="border-amber-200/60 shadow-sm overflow-hidden card-print">
+                  <div className="h-1 bg-gradient-to-l from-yellow-400 to-amber-500" />
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <div className="flex size-10 items-center justify-center rounded-lg bg-yellow-100">
+                        <SunMedium className="size-5 text-yellow-600" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg text-gray-800">الألواح الشمسية</CardTitle>
+                        <CardDescription>حساب عدد وقدرة الألواح المطلوبة</CardDescription>
+                      </div>
                     </div>
-                    <div>
-                      <CardTitle className="text-lg text-gray-800">منظم الشحن</CardTitle>
-                      <CardDescription>حساب مواصفات منظم الشحن</CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <ResultRow
-                    label="تيار منظم الشحن المطلوب"
-                    value={formatNumber(results.chargeControllerCurrent)}
-                    unit="أمبير"
-                  />
-                  <ResultRow
-                    label="منظم الشحن الموصى به"
-                    value={formatNumber(results.recommendedController)}
-                    unit="أمبير"
-                    highlight
-                  />
-                  <ResultRow
-                    label="النوع الموصى به"
-                    value={results.controllerType}
-                    unit=""
-                    highlight
-                  />
-                </CardContent>
-              </Card>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <ResultRow
+                      label="إجمالي القدرة المطلوبة من الألواح"
+                      value={formatNumber(Math.round(results.requiredSolarCapacity))}
+                      unit="واط"
+                    />
+                    <ResultRow
+                      label="عدد الألواح الشمسية المطلوبة"
+                      value={formatNumber(results.numberOfPanels)}
+                      unit="لوح"
+                      highlight
+                    />
+                    <ResultRow
+                      label="قدرة اللوح الواحد"
+                      value={formatNumber(params.panelWattage)}
+                      unit="واط"
+                    />
+                    <ResultRow
+                      label="المساحة التقريبية للألواح"
+                      value={formatNumber(results.panelArea, 1)}
+                      unit="م²"
+                    />
+                  </CardContent>
+                </Card>
 
-              {/* Card 6: Cost Estimate */}
-              <Card className="border-amber-200/60 shadow-sm overflow-hidden">
-                <div className="h-1 bg-gradient-to-l from-emerald-400 to-green-500" />
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <div className="flex size-10 items-center justify-center rounded-lg bg-emerald-100">
-                      <DollarSign className="size-5 text-emerald-600" />
+                {/* Card 3: Batteries */}
+                <Card className="border-amber-200/60 shadow-sm overflow-hidden card-print">
+                  <div className="h-1 bg-gradient-to-l from-green-400 to-emerald-500" />
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <div className="flex size-10 items-center justify-center rounded-lg bg-green-100">
+                        <Battery className="size-5 text-green-600" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg text-gray-800">البطاريات</CardTitle>
+                        <CardDescription>
+                          {params.systemType === "on-grid" ? "لا حاجة للبطاريات في المنظومة المتصلة بالشبكة" : "حساب بنك البطاريات المطلوب"}
+                        </CardDescription>
+                      </div>
                     </div>
-                    <div>
-                      <CardTitle className="text-lg text-gray-800">تقدير التكلفة</CardTitle>
-                      <CardDescription>تقدير تقريبي لتكلفة المنظومة بالدولار الأمريكي</CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <ResultRow
-                    label="تكلفة الألواح الشمسية"
-                    value={`$${formatUSD(Math.round(results.panelCost))}`}
-                    unit=""
-                  />
-                  <ResultRow
-                    label="تكلفة البطاريات"
-                    value={`$${formatUSD(Math.round(results.batteryCost))}`}
-                    unit=""
-                  />
-                  <ResultRow
-                    label="تكلفة العاكس"
-                    value={`$${formatUSD(Math.round(results.inverterCost))}`}
-                    unit=""
-                  />
-                  <ResultRow
-                    label="تكلفة منظم الشحن"
-                    value={`$${formatUSD(Math.round(results.controllerCost))}`}
-                    unit=""
-                  />
-                  <ResultRow
-                    label="الإكسسوارات والتركيب (15%)"
-                    value={`$${formatUSD(Math.round(results.accessories))}`}
-                    unit=""
-                  />
-                  <Separator className="my-2 bg-emerald-200" />
-                  <div className="flex items-center justify-between rounded-lg bg-emerald-50 p-3">
-                    <span className="font-bold text-gray-700">التكلفة الإجمالية التقريبية</span>
-                    <span className="text-xl font-bold text-emerald-700">
-                      ${formatUSD(Math.round(results.totalCost))}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {params.systemType === "on-grid" ? (
+                      <div className="rounded-lg bg-blue-50 p-4 text-center">
+                        <p className="text-sm text-blue-700 font-semibold">المنظومة متصلة بالشبكة</p>
+                        <p className="text-xs text-blue-500 mt-1">لا حاجة لبطاريات - يتم بيع الفائض للشبكة مباشرة</p>
+                      </div>
+                    ) : (
+                      <>
+                        <ResultRow
+                          label="نوع البطارية"
+                          value={results.batteryTypeName}
+                          unit=""
+                          highlight
+                        />
+                        <ResultRow
+                          label="سعة المخزن المطلوبة"
+                          value={`${formatNumber(Math.round(results.usableStorageWh))} واط·س (${formatNumber(results.usableStorageKWh, 2)} كيلوواط·ساعة)`}
+                          unit=""
+                        />
+                        <ResultRow
+                          label="عدد البطاريات المطلوبة"
+                          value={formatNumber(results.actualTotalBatteries)}
+                          unit="بطارية"
+                          highlight
+                        />
+                        <ResultRow
+                          label="سعة البطارية الواحدة"
+                          value={`${formatNumber(params.batteryCapacity)} أمبير·ساعة (${formatNumber(results.batteryCapacityKWh, 1)} كيلوواط·ساعة)`}
+                          unit=""
+                        />
+                        <ResultRow
+                          label="توصيل البطاريات"
+                          value={`${formatNumber(results.seriesBatteries)} سلسل × ${formatNumber(results.parallelBatteries)} توازي`}
+                          unit=""
+                        />
+                        <ResultRow
+                          label="إجمالي الطاقة المخزنة"
+                          value={`${formatNumber(results.totalStoredEnergy, 2)} كيلوواط·س (${formatNumber(results.totalStoredEnergyKWh, 2)} كيلوواط·ساعة)`}
+                          unit=""
+                        />
+                        {results.selectedBatteryModelName && (
+                          <>
+                            <Separator className="my-2 bg-green-200" />
+                            <div className="rounded-lg bg-green-50 p-3">
+                              <h4 className="font-bold text-green-800 text-sm mb-2 flex items-center gap-1">
+                                <Battery className="size-4 text-green-500" />
+                                البطارية المحددة
+                              </h4>
+                              <p className="font-semibold text-green-900 text-sm">{results.selectedBatteryModelName}</p>
+                              <p className="text-xs text-green-700 mt-1">{results.selectedBatterySpecs}</p>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
 
-            {/* Card 7: System Type & Connection */}
-              <Card className="border-amber-200/60 shadow-sm overflow-hidden">
+                {/* Card 4: Inverter */}
+                <Card className="border-amber-200/60 shadow-sm overflow-hidden card-print">
+                  <div className="h-1 bg-gradient-to-l from-blue-400 to-indigo-500" />
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <div className="flex size-10 items-center justify-center rounded-lg bg-blue-100">
+                        <Zap className="size-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg text-gray-800">العاكس</CardTitle>
+                        <CardDescription>حساب قدرة العاكس المطلوبة</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <ResultRow
+                      label="قدرة العاكس المطلوبة"
+                      value={formatNumber(results.inverterCapacity)}
+                      unit="واط"
+                    />
+                    <ResultRow
+                      label="قدرة العاكس الموصى بها"
+                      value={formatNumber(results.recommendedInverter)}
+                      unit="واط"
+                      highlight
+                    />
+                    <ResultRow
+                      label="جهد الدخول"
+                      value={formatNumber(params.systemVoltage)}
+                      unit="فولت تيار مستمر"
+                    />
+                    <ResultRow
+                      label="جهد الخرج"
+                      value="220"
+                      unit="فولت تيار متردد"
+                    />
+                    {results.selectedInverterModelName && (
+                      <>
+                        <Separator className="my-2 bg-blue-200" />
+                        <div className="rounded-lg bg-blue-50 p-3">
+                          <h4 className="font-bold text-blue-800 text-sm mb-2 flex items-center gap-1">
+                            <Zap className="size-4 text-blue-500" />
+                            العاكس المحدد
+                          </h4>
+                          <p className="font-semibold text-blue-900 text-sm">{results.selectedInverterModelName}</p>
+                          <p className="text-xs text-blue-700 mt-1">{results.selectedInverterSpecs}</p>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Card 5: Charge Controller */}
+                <Card className="border-amber-200/60 shadow-sm overflow-hidden card-print">
+                  <div className="h-1 bg-gradient-to-l from-purple-400 to-violet-500" />
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <div className="flex size-10 items-center justify-center rounded-lg bg-purple-100">
+                        <Gauge className="size-5 text-purple-600" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg text-gray-800">منظم الشحن</CardTitle>
+                        <CardDescription>حساب مواصفات منظم الشحن</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <ResultRow
+                      label="تيار منظم الشحن المطلوب"
+                      value={formatNumber(results.chargeControllerCurrent)}
+                      unit="أمبير"
+                    />
+                    <ResultRow
+                      label="منظم الشحن الموصى به"
+                      value={formatNumber(results.recommendedController)}
+                      unit="أمبير"
+                      highlight
+                    />
+                    <ResultRow
+                      label="النوع الموصى به"
+                      value={results.controllerType}
+                      unit=""
+                      highlight
+                    />
+                  </CardContent>
+                </Card>
+
+                {/* Card 6: Cost Estimate */}
+                <Card className="border-amber-200/60 shadow-sm overflow-hidden card-print">
+                  <div className="h-1 bg-gradient-to-l from-emerald-400 to-green-500" />
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <div className="flex size-10 items-center justify-center rounded-lg bg-emerald-100">
+                        <DollarSign className="size-5 text-emerald-600" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg text-gray-800">تقدير التكلفة</CardTitle>
+                        <CardDescription>تقدير تقريبي لتكلفة المنظومة بالدولار الأمريكي</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <ResultRow
+                      label="تكلفة الألواح الشمسية"
+                      value={`$${formatUSD(Math.round(results.panelCost))}`}
+                      unit=""
+                    />
+                    <ResultRow
+                      label="تكلفة البطاريات"
+                      value={`$${formatUSD(Math.round(results.batteryCost))}`}
+                      unit=""
+                    />
+                    <ResultRow
+                      label="تكلفة العاكس"
+                      value={`$${formatUSD(Math.round(results.inverterCost))}`}
+                      unit=""
+                    />
+                    <ResultRow
+                      label="تكلفة منظم الشحن"
+                      value={`$${formatUSD(Math.round(results.controllerCost))}`}
+                      unit=""
+                    />
+                    <ResultRow
+                      label="الإكسسوارات والتركيب (15%)"
+                      value={`$${formatUSD(Math.round(results.accessories))}`}
+                      unit=""
+                    />
+                    <Separator className="my-2 bg-emerald-200" />
+                    <div className="flex items-center justify-between rounded-lg bg-emerald-50 p-3">
+                      <span className="font-bold text-gray-700">التكلفة الإجمالية التقريبية</span>
+                      <span className="text-xl font-bold text-emerald-700">
+                        ${formatUSD(Math.round(results.totalCost))}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Card 7: System Type & Connection */}
+              <Card className="border-amber-200/60 shadow-sm overflow-hidden mt-6 card-print">
                 <div className="h-1 bg-gradient-to-l from-cyan-400 to-teal-500" />
                 <CardHeader>
                   <div className="flex items-center gap-2">
@@ -1532,66 +1949,30 @@ export default function SolarCalculator() {
                   />
                   {params.systemType === "on-grid" && (
                     <>
-                      <ResultRow
-                        label="طريقة الربط"
-                        value="متصلة بالشبكة مباشرة"
-                        unit=""
-                      />
-                      <ResultRow
-                        label="بيع الفائض"
-                        value="نعم - يتم بيع الطاقة الفائضة للشبكة"
-                        unit=""
-                      />
-                      <ResultRow
-                        label="الحاجة للبطاريات"
-                        value="لا"
-                        unit=""
-                      />
+                      <ResultRow label="طريقة الربط" value="متصلة بالشبكة مباشرة" unit="" />
+                      <ResultRow label="بيع الفائض" value="نعم - يتم بيع الطاقة الفائضة للشبكة" unit="" />
+                      <ResultRow label="الحاجة للبطاريات" value="لا" unit="" />
                     </>
                   )}
                   {params.systemType === "off-grid" && (
                     <>
-                      <ResultRow
-                        label="طريقة الربط"
-                        value="مستقلة تماماً عن الشبكة"
-                        unit=""
-                      />
-                      <ResultRow
-                        label="بيع الفائض"
-                        value="لا - الطاقة الفائضة غير مستغلة"
-                        unit=""
-                      />
-                      <ResultRow
-                        label="الحاجة للبطاريات"
-                        value="نعم - أساسية لتخزين الطاقة"
-                        unit=""
-                      />
+                      <ResultRow label="طريقة الربط" value="مستقلة تماماً عن الشبكة" unit="" />
+                      <ResultRow label="بيع الفائض" value="لا - الطاقة الفائضة غير مستغلة" unit="" />
+                      <ResultRow label="الحاجة للبطاريات" value="نعم - أساسية لتخزين الطاقة" unit="" />
                     </>
                   )}
                   {params.systemType === "hybrid" && (
                     <>
-                      <ResultRow
-                        label="طريقة الربط"
-                        value="هجينة - شبكة + بطاريات"
-                        unit=""
-                      />
-                      <ResultRow
-                        label="بيع الفائض"
-                        value="نعم - بعد شحن البطاريات"
-                        unit=""
-                      />
-                      <ResultRow
-                        label="الحاجة للبطاريات"
-                        value="نعم - كاحتياطي وتخزين"
-                        unit=""
-                      />
+                      <ResultRow label="طريقة الربط" value="هجينة - شبكة + بطاريات" unit="" />
+                      <ResultRow label="بيع الفائض" value="نعم - بعد شحن البطاريات" unit="" />
+                      <ResultRow label="الحاجة للبطاريات" value="نعم - كاحتياطي وتخزين" unit="" />
                     </>
                   )}
                 </CardContent>
               </Card>
 
               {/* Card 8: Brand Recommendations */}
-              <Card className="border-amber-200/60 shadow-sm overflow-hidden lg:col-span-2">
+              <Card className="border-amber-200/60 shadow-sm overflow-hidden mt-6 card-print">
                 <div className="h-1 bg-gradient-to-l from-rose-400 to-pink-500" />
                 <CardHeader>
                   <div className="flex items-center gap-2">
@@ -1770,17 +2151,164 @@ export default function SolarCalculator() {
                 </CardContent>
               </Card>
 
-            {/* Disclaimer */}
-            <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 text-center text-sm text-amber-700">
-              <strong>ملاحظة:</strong> هذه الحسابات تقريبية وقد تختلف عن الواقع حسب الظروف الميدانية وجودة المعدات.
-              يُنصح باستشارة مهندس متخصص قبل التنفيذ.
+              {/* Card 9: Panel String Configuration (MPPT) - Feature 1 */}
+              <Card className="border-amber-200/60 shadow-sm overflow-hidden mt-6 card-print">
+                <div className="h-1 bg-gradient-to-l from-orange-400 to-red-500" />
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <div className="flex size-10 items-center justify-center rounded-lg bg-orange-100">
+                      <Cable className="size-5 text-orange-600" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg text-gray-800">توصيل الألواح (Panel String Configuration)</CardTitle>
+                      <CardDescription>تكوين سلاسل الألواح الشمسية مع MPPT</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {!results.hasMpptData ? (
+                    <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-center">
+                      <div className="flex items-center justify-center gap-2 mb-2">
+                        <AlertTriangle className="size-5 text-amber-500" />
+                        <span className="font-semibold text-amber-700">يرجى اختيار موديل الانفرتر لحساب توصيل السلاسل</span>
+                      </div>
+                      <p className="text-xs text-amber-600">
+                        اختر ماركة وموديل العاكس من قسم معلمات المنظومة لتفعيل حساب توصيل سلاسل الألواح مع MPPT
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Panel specs summary */}
+                      <div className="rounded-lg bg-orange-50 p-3 mb-2">
+                        <h4 className="font-bold text-orange-800 text-xs mb-2">مواصفات اللوح الشمسي</h4>
+                        <div className="grid grid-cols-2 gap-1 text-xs">
+                          <span className="text-gray-600">Voc: <span className="font-semibold text-gray-800">{results.panelVoc}V</span></span>
+                          <span className="text-gray-600">Isc: <span className="font-semibold text-gray-800">{results.panelIsc}A</span></span>
+                          <span className="text-gray-600">Vmp: <span className="font-semibold text-gray-800">{results.panelVmp}V</span></span>
+                          <span className="text-gray-600">Imp: <span className="font-semibold text-gray-800">{results.panelImp}A</span></span>
+                        </div>
+                      </div>
+
+                      {/* MPPT voltage range */}
+                      <div className="rounded-lg bg-blue-50 p-3 mb-2">
+                        <h4 className="font-bold text-blue-800 text-xs mb-1">مدى جهد MPPT</h4>
+                        <div className="text-xs text-blue-700">
+                          الحد الأدنى: <span className="font-semibold">{results.mpptMinV}V</span> | 
+                          الحد الأقصى: <span className="font-semibold">{results.mpptMaxV}V</span> | 
+                          عدد MPPT: <span className="font-semibold">{results.mpptCount}</span>
+                        </div>
+                      </div>
+
+                      <ResultRow
+                        label="عدد الألواح في السلسلة"
+                        value={formatNumber(results.panelsPerString)}
+                        unit="لوح"
+                        highlight
+                      />
+                      <ResultRow
+                        label="عدد السلاسل"
+                        value={formatNumber(results.totalStrings)}
+                        unit="سلسلة"
+                        highlight
+                      />
+                      <ResultRow
+                        label="عدد السلاسل لكل MPPT"
+                        value={formatNumber(results.stringsPerMPPT)}
+                        unit="سلسلة"
+                      />
+                      <ResultRow
+                        label="جهد السلسلة عند الدائرة المفتوحة (Voc)"
+                        value={formatNumber(results.stringVoc, 1)}
+                        unit="فولت"
+                      />
+                      <ResultRow
+                        label="جهد السلسلة عند أقصى قدرة (Vmp)"
+                        value={formatNumber(results.stringVmp, 1)}
+                        unit="فولت"
+                      />
+                      <ResultRow
+                        label="تيار السلسلة (Isc)"
+                        value={formatNumber(results.stringIsc, 1)}
+                        unit="أمبير"
+                      />
+                      <ResultRow
+                        label="القدرة الإجمالية لكل سلسلة"
+                        value={formatNumber(results.stringPowerW)}
+                        unit="واط"
+                      />
+
+                      {/* String Voc warning */}
+                      {results.stringVoc > results.mpptMaxV * 0.9 && (
+                        <div className="rounded-lg bg-red-50 border border-red-200 p-3 flex items-center gap-2">
+                          <AlertTriangle className="size-4 text-red-500 shrink-0" />
+                          <span className="text-xs text-red-700 font-semibold">
+                            تحذير: جهد السلسلة عند الدائرة المفتوحة ({formatNumber(results.stringVoc, 1)}V) قريب من الحد الأقصى لـ MPPT ({formatNumber(results.mpptMaxV, 1)}V). قد يتجاوز الجهد الحد في درجات الحرارة المنخفضة.
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Connection diagram */}
+                      <Separator className="my-2 bg-orange-200" />
+                      <div className="rounded-lg bg-gradient-to-l from-orange-50 to-amber-50 p-4 text-center">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          <Cable className="size-5 text-orange-600" />
+                          <span className="font-bold text-orange-800">مخطط التوصيل</span>
+                        </div>
+                        <div className="text-xl font-bold text-amber-700">
+                          {formatNumber(results.totalStrings)} سلسلة × {formatNumber(results.panelsPerString)} لوح
+                        </div>
+                        <div className="text-sm text-gray-600 mt-1">
+                          إجمالي الألواح: {formatNumber(results.totalStrings * results.panelsPerString)} لوح (المطلوب: {formatNumber(results.numberOfPanels)} لوح)
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Disclaimer */}
+              <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 text-center text-sm text-amber-700 mt-6">
+                <strong>ملاحظة:</strong> هذه الحسابات تقريبية وقد تختلف عن الواقع حسب الظروف الميدانية وجودة المعدات.
+                يُنصح باستشارة مهندس متخصص قبل التنفيذ.
+              </div>
+            </div>
+
+            {/* Export Buttons - Feature 3 */}
+            <div className="flex flex-wrap items-center justify-center gap-3 mt-6 no-print">
+              <Button
+                onClick={exportToPDF}
+                variant="outline"
+                size="lg"
+                className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+              >
+                <Download className="size-5" />
+                تصدير كـ PDF
+              </Button>
+              <Button
+                onClick={shareReport}
+                variant="outline"
+                size="lg"
+                className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+              >
+                <Share2 className="size-5" />
+                مشاركة التقرير
+              </Button>
+              <Button
+                onClick={printReport}
+                variant="outline"
+                size="lg"
+                className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+              >
+                <Printer className="size-5" />
+                طباعة
+              </Button>
             </div>
           </section>
         )}
       </main>
 
       {/* Footer */}
-      <footer className="mt-auto border-t border-amber-200/60 bg-amber-50/30 py-6 text-center text-sm text-gray-500">
+      <footer className="mt-auto border-t border-amber-200/60 bg-amber-50/30 py-6 text-center text-sm text-gray-500 print-hide">
         <div className="flex items-center justify-center gap-2">
           <Sun className="size-4 text-amber-500" />
           <span>حاسبة المنظومة الشمسية - أداة احترافية لتصميم المنظومات الشمسية</span>

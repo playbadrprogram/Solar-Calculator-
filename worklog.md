@@ -1,96 +1,89 @@
-# Solar Calculator - Brand & Model Enhancements Worklog
+# Worklog: Solar Calculator - 3 Major Features Addition
 
-## Task ID: 1
-## Date: 2024-03-05
+**Date:** 2026-05-31
+**File Modified:** `/home/z/my-project/src/components/solar-calculator.tsx`
 
-## Summary of Changes
+## Summary
 
-Updated `/home/z/my-project/src/components/solar-calculator.tsx` with comprehensive brand and model data for batteries and inverters, based on user's real product images (DYNess Powerbox G2 and POWERTEK SNA-EU 14000).
+Added 3 major features to the Arabic RTL Solar Calculator application:
 
-### Changes Made
+### Feature 1: MPPT String Sizing for Panel-Inverter Connection
 
-#### 1. Replaced `lithiumBatteryBrands` (lines 118-177)
-- **Before**: Simple brand records with `name`, `capacities`, `notes`
-- **After**: Detailed model records with `name`, `models[]` (each having `name`, `voltage`, `capacityAh`, `energyKWh`, `price`), `notes`
-- Added **DYNess** as first brand with Powerbox G2 models (100Ah/5.12kWh, 200Ah/10.24kWh, 280Ah/14.34kWh)
-- Updated **Pylontech** with US2000C, US3000C, Force H2 models
-- Updated **BYD** with Battery Box Premium HVS/HVM models
-- Updated **CATL** with EnerOne, EnerOne Plus, EnerOne Mega models
-- Updated **SolaX** with Triple Power LFP models (65Ah, 100Ah, 130Ah)
-- Updated **Victron Energy** with Lynx Smart BMS models (50Ah, 100Ah)
-- Removed Tesla Powerwall and Egyptian Lithium (replaced with DYNess)
+**Changes:**
+- Added `panelSpecsByWattage` helper object with auto-fill specs for 100W-720W panels
+- Added `parsePvVoltageRange()` utility function to parse inverter PV voltage ranges
+- Added `panelSpecs` state with voc, isc, vmp, imp fields
+- Extended `CalculationResults` interface with 15 new fields for MPPT string sizing:
+  - `panelVoc`, `panelIsc`, `panelVmp`, `panelImp`
+  - `panelsPerString`, `totalStrings`, `stringsPerMPPT`
+  - `stringVoc`, `stringVmp`, `stringIsc`, `stringImp`, `stringPowerW`
+  - `mpptMinV`, `mpptMaxV`, `mpptCount`, `hasMpptData`
+- Added panel specs input section in System Parameters card with editable Voc, Isc, Vmp, Imp fields
+- Added auto-fill logic when panel wattage changes (via `updateParam`)
+- Added MPPT string calculation logic in `calculate()` function:
+  - Calculates max/min panels per string based on MPPT voltage range
+  - Applies 15% safety factor for cold temperature Voc increase
+  - Applies 10% safety margin for Vmp operating voltage
+  - Checks current per MPPT against 25A typical limit
+- Added **Card 9: توصيل الألواح (Panel String Configuration)** with:
+  - Panel specs summary display
+  - MPPT voltage range display
+  - Panels per string, number of strings, strings per MPPT
+  - String Voc, Vmp, Isc, and power
+  - Warning when string Voc nears MPPT max voltage
+  - Connection diagram: "X سلسلة × Y لوح"
+  - Warning message when no inverter model is selected
+- Added `Cable` and `AlertTriangle` icon imports from lucide-react
 
-#### 2. Replaced `inverterBrands` (lines 179-255)
-- **Before**: Simple brand records with `name`, `range`, `type`, `notes`
-- **After**: Detailed model records with `name`, `models[]` (each having `name`, `powerW`, `pvVoltageRange`, `mpptCount`, `maxPvPower`, `batteryVoltage`, `notes`, `price`), `type`, `notes`
-- Added **Lux Power / POWERTEK** as first brand with SNA-EU 5000-14000 models
-- Updated **Growatt** with SPF 5000ES, SPF 8000ES, SPH 10000TL3
-- Updated **Deye** with SUN-5K/8K/12K-SG04LP3 models
-- Updated **SMA** with Sunny Island 6048, Sunny Boy Storage
-- Updated **Victron Energy** with MultiPlus-II and Quattro models
-- Updated **Huawei** with SUN2000-5KTL/10KTL
-- Updated **Sungrow** with SH5.0RT/SH10RT
-- Removed Sol-Ark and MPP Solar brands
+### Feature 2: Project Information Box
 
-#### 3. Updated `CalculationResults` interface (lines 65-105)
-- Added `selectedBatteryModelName: string`
-- Added `selectedInverterModelName: string`
-- Added `selectedBatterySpecs: string`
-- Added `selectedInverterSpecs: string`
-- Added `matchingBatteryModels: { brand, model, voltage, capacityAh, energyKWh, price }[]`
-- Added `matchingInverterModels: { brand, model, powerW, pvVoltageRange, mpptCount, maxPvPower, price }[]`
+**Changes:**
+- Added `projectInfo` state with fields: projectName, clientName, location, date, engineerName, projectNumber, notes
+- Added `projectInfoExpanded` state (default: collapsed)
+- Added collapsible Card at the top of `<main>` with briefcase icon
+- Toggle button to expand/collapse the card
+- Grid layout with all 7 fields (notes as textarea)
+- Project info header displayed in report when any field is filled
+- Date defaults to current date
 
-#### 4. Added new state variables (lines 301-304)
-- `selectedBatteryBrand` - tracks selected battery brand key
-- `selectedBatteryModel` - tracks selected battery model index
-- `selectedInverterBrand` - tracks selected inverter brand key
-- `selectedInverterModel` - tracks selected inverter model index
+### Feature 3: PDF Export and Sharing
 
-#### 5. Added 51.2V battery voltage option (line 935-937)
-- Conditional `SelectItem` for 51.2V shown only when `batteryType === "lithium"`
-- This matches the actual voltage of 48V-nominal LiFePO4 batteries
-
-#### 6. Added battery brand/model selection dropdowns (lines 942-996)
-- Battery brand dropdown: shown when lithium selected and system is not on-grid
-- Battery model dropdown: shows models for selected brand with specs and price
-- Auto-fills `batteryCapacity` and `batteryVoltage` from selected model
-
-#### 7. Added inverter brand/model selection dropdowns (lines 999-1053)
-- Inverter brand dropdown: filtered by system type compatibility
-- Inverter model dropdown: shows models for selected brand with power and price
-- Shows brief specs hint below dropdown when model is selected
-
-#### 8. Updated calculate function (lines 448-560)
-- **Battery cost**: Uses model's price when specific model selected, falls back to per-Ah calculation
-- **Inverter cost**: Uses model's price when specific model selected, falls back to per-watt calculation
-- Computes `selectedBatteryModelName`, `selectedInverterModelName`, `selectedBatterySpecs`, `selectedInverterSpecs`
-- Computes `matchingBatteryModels` - sorted by closest energy to required storage
-- Computes `matchingInverterModels` - filtered by system type and sorted by closest power to recommended
-- Added new state variables to useCallback dependency array
-- Fixed `seriesBatteries` calculation to use `Math.round()` for 51.2V compatibility
-
-#### 9. Enhanced Card 3 (Batteries) (lines 1356-1368)
-- Added "البطارية المحددة" section showing selected model name and specs
-
-#### 10. Enhanced Card 4 (Inverter) (lines 1397-1409)
-- Added "العاكس المحدد" section showing selected model name and detailed specs
-
-#### 11. Enhanced Card 8 (Brand Recommendations) (lines 1593-1771)
-- Changed to `lg:col-span-2` for wider display
-- **Inverter models table**: Shows matching inverter models with brand, model, power, PV range, MPPT, max PV, price
-- DYNess/POWERTEK models highlighted with ★ badge and amber background
-- Falls back to simple brand list if no matching models
-- **Battery models table**: Shows matching battery models with brand, model, voltage, Ah, kWh, price
-- DYNess models highlighted with ★ badge and amber background
-- Falls back to simple brand list if no matching models
-- Added lead-acid battery recommendation section
-- Kept charge controller recommendation section
+**Changes:**
+- Installed `html2pdf.js` package
+- Added `useRef` import for report reference
+- Added `Briefcase`, `FileText`, `Download`, `Share2`, `Printer`, `ChevronDown`, `ChevronUp` icon imports
+- Added `exportToPDF()` function:
+  - Dynamically imports html2pdf.js
+  - Exports report-content div as A4 PDF
+  - Filename includes project name and date
+  - Falls back to `window.print()` on error
+- Added `shareReport()` function:
+  - Uses Web Share API if available
+  - Falls back to clipboard copy
+  - Generates text summary with key results
+- Added `printReport()` function using `window.print()`
+- Added 3 export buttons at bottom of results section:
+  - "تصدير كـ PDF" (Export as PDF)
+  - "مشاركة التقرير" (Share Report)
+  - "طباعة" (Print)
+- Wrapped results content in `<div id="report-content">` for PDF export
+- Added `@media print` styles via `<style dangerouslySetInnerHTML>`:
+  - Hides header, footer, buttons, interactive elements
+  - Shows only results section
+  - Formats tables for print
+  - Adds page break support
+- Added `no-print` class to interactive sections (load type selection, add load button, calculate button, etc.)
+- Added `print-hide` class to header and footer
+- Added `card-print` class to result cards for clean borders in print
 
 ## Build Status
-- ✅ Build compiles successfully (`npx next build`)
-- ✅ No ESLint errors (`bun run lint`)
-- ✅ Dev server running without errors
 
-## Arabic RTL Interface
-- All new labels and text are in Arabic
-- RTL layout preserved throughout
+- **Next.js build:** ✅ Successful (compiled in 7.0s)
+- **ESLint:** ✅ No errors
+- **Dev server:** ✅ Running on port 3000
+
+## Lines Changed
+
+- Original file: ~1824 lines
+- Updated file: ~2065 lines
+- Net addition: ~240 lines of new code
