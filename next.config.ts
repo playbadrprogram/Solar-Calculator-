@@ -2,11 +2,51 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  /* config options here */
   typescript: {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  allowedDevOrigins: ["localhost", "127.0.0.1", "0.0.0.0", ".space.chatglm.site"],
+  turbopack: {
+    resolveAlias: {
+      "@swc/helpers/_/_interop_require_wildcard": "@swc/helpers/cjs/_interop_require_wildcard.cjs",
+      "@swc/helpers/_/_interop_require_default": "@swc/helpers/cjs/_interop_require_default.cjs",
+      "@swc/helpers/_/_extends": "@swc/helpers/cjs/_extends.cjs",
+      "@swc/helpers/_/_object_spread": "@swc/helpers/cjs/_object_spread.cjs",
+      "@swc/helpers/_/_object_without_properties": "@swc/helpers/cjs/_object_without_properties.cjs",
+      "@swc/helpers/_/_define_property": "@swc/helpers/cjs/_define_property.cjs",
+      "@swc/helpers/_/_apply_decorated_descriptor": "@swc/helpers/cjs/_apply_decorated_descriptor.cjs",
+      "@swc/helpers/_/_array_like_to_array": "@swc/helpers/cjs/_array_like_to_array.cjs",
+      "@swc/helpers/_/_array_with_holes": "@swc/helpers/cjs/_array_with_holes.cjs",
+      "@swc/helpers/_/_iterable_to_array": "@swc/helpers/cjs/_iterable_to_array.cjs",
+      "@swc/helpers/_/_non_iterable_rest": "@swc/helpers/cjs/_non_iterable_rest.cjs",
+      "@swc/helpers/_/_sliced_to_array": "@swc/helpers/cjs/_sliced_to_array.cjs",
+      "@swc/helpers/_/_to_consumable_array": "@swc/helpers/cjs/_to_consumable_array.cjs",
+      "@swc/helpers/_/_typeof": "@swc/helpers/cjs/_typeof.cjs",
+      "@swc/helpers/_/_wrap_native_super": "@swc/helpers/cjs/_wrap_native_super.cjs",
+      "@swc/helpers/_/_create_class": "@swc/helpers/cjs/_create_class.cjs",
+      "@swc/helpers/_/_inherits": "@swc/helpers/cjs/_inherits.cjs",
+      "@swc/helpers/_/_set_prototype_of": "@swc/helpers/cjs/_set_prototype_of.cjs",
+      "@swc/helpers/_/_get_prototype_of": "@swc/helpers/cjs/_get_prototype_of.cjs",
+      "@swc/helpers/_/_is_native_reflect_construct": "@swc/helpers/cjs/_is_native_reflect_construct.cjs",
+      "@swc/helpers/_/_possible_constructor_return": "@swc/helpers/cjs/_possible_constructor_return.cjs",
+      "@swc/helpers/_/_create_super": "@swc/helpers/cjs/_create_super.cjs",
+      "@swc/helpers/_/_construct": "@swc/helpers/cjs/_construct.cjs",
+      "@swc/helpers/_/_is_native_function": "@swc/helpers/cjs/_is_native_function.cjs",
+      "@swc/helpers/_/_to_primitive": "@swc/helpers/cjs/_to_primitive.cjs",
+      "@swc/helpers/_/_to_property_key": "@swc/helpers/cjs/_to_property_key.cjs",
+      "@swc/helpers/_/_call_super": "@swc/helpers/cjs/_call_super.cjs",
+      "@swc/helpers/_/_assert_this_initialized": "@swc/helpers/cjs/_assert_this_initialized.cjs",
+      "@swc/helpers/_/_class_call_check": "@swc/helpers/cjs/_class_call_check.cjs",
+      "@swc/helpers/_/_create_for_of_iterator_helper_loose": "@swc/helpers/cjs/_create_for_of_iterator_helper_loose.cjs",
+      "@swc/helpers/_/_async_to_generator": "@swc/helpers/cjs/_async_to_generator.cjs",
+      "@swc/helpers/_/_await_async_generator": "@swc/helpers/cjs/_await_async_generator.cjs",
+      "@swc/helpers/_/_wrap_async_generator": "@swc/helpers/cjs/_wrap_async_generator.cjs",
+      "@swc/helpers/_/_async_generator": "@swc/helpers/cjs/_async_generator.cjs",
+      "@swc/helpers/_/_async_iterator": "@swc/helpers/cjs/_async_iterator.cjs",
+      "@swc/helpers/_/_async_generator_delegate": "@swc/helpers/cjs/_async_generator_delegate.cjs",
+    },
+  },
 };
 
 export default nextConfig;

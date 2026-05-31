@@ -57,3 +57,27 @@ All changes were made to `/home/z/my-project/src/components/solar-calculator.tsx
 ## Build Status
 ✅ Build compiled successfully
 ✅ Lint passed with no errors
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix @swc/helpers Module Not Found error in Next.js 16 Turbopack
+
+Work Log:
+- Investigated the @swc/helpers/_/_interop_require_wildcard Module Not Found error
+- Confirmed the error was a Turbopack resolution bug in Next.js 16.1.3
+- Verified @swc/helpers v0.5.15 was installed and files existed on disk
+- First tried `experimental.turbo.resolveAlias` - got "Unrecognized key" warning in Next.js 16
+- Fixed by using top-level `turbopack.resolveAlias` config (correct for Next.js 16)
+- Added resolve aliases for all 34 @swc/helpers subpath imports
+- Added `allowedDevOrigins` config to fix cross-origin warnings
+- Cleaned .next cache and rebuilt
+- Verified: no more @swc/helpers errors in dev server logs
+- Verified: production build succeeds without errors
+- Verified: GET / 200 returns correct HTML
+
+Stage Summary:
+- Root cause: Turbopack in Next.js 16 cannot resolve @swc/helpers subpath imports like `@swc/helpers/_/_interop_require_wildcard`
+- Fix: Added turbopack.resolveAlias mapping in next.config.ts to redirect subpath imports to CJS files
+- Files modified: /home/z/my-project/next.config.ts
+- Build status: ✅ Production build succeeds, ✅ Dev server starts without errors
