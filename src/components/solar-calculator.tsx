@@ -96,6 +96,12 @@ interface CalculationResults {
   controllerCost: number;
   accessories: number;
   totalCost: number;
+  selectedBatteryModelName: string;
+  selectedInverterModelName: string;
+  selectedBatterySpecs: string;
+  selectedInverterSpecs: string;
+  matchingBatteryModels: { brand: string; model: string; voltage: number; capacityAh: number; energyKWh: number; price: number }[];
+  matchingInverterModels: { brand: string; model: string; powerW: number; pvVoltageRange: string; mpptCount: number; maxPvPower: number; price: number }[];
 }
 
 // Default load presets
@@ -115,27 +121,143 @@ const industrialDefaults: LoadEntry[] = [
   { id: "4", name: "لحام كهربائي", quantity: 1, power: 4000, hours: 4 },
 ];
 
-// Battery brand recommendations based on type and capacity
-const lithiumBatteryBrands: Record<string, { name: string; capacities: string; notes: string }> = {
-  pylontech: { name: "Pylontech", capacities: "2.4 - 100 kWh", notes: "أكثر شيوعاً في المنظومات المنزلية" },
-  byd: { name: "BYD", capacities: "2.5 - 100 kWh", notes: "أداء ممتاز وعمر طويل" },
-  catl: { name: "CATL", capacities: "5 - 200 kWh", notes: "أكبر مصنع بطاريات في العالم" },
-  tesla: { name: "Tesla Powerwall", capacities: "13.5 kWh", notes: "مثالي للمنازل مع ضمان 10 سنوات" },
-  egyptian_lithium: { name: "Egyptian Lithium", capacities: "2.5 - 50 kWh", notes: "خيار محلي بسعر تنافسي" },
-  solax: { name: "SolaX", capacities: "3.3 - 20 kWh", notes: "تكامل ممتاز مع العواكس" },
-  victron: { name: "Victron Energy", capacities: "1.6 - 40 kWh", notes: "جودة هولندية عالية" },
+// Battery brand recommendations with detailed product models
+const lithiumBatteryBrands: Record<string, { 
+  name: string; 
+  models: { name: string; voltage: number; capacityAh: number; energyKWh: number; price: number }[];
+  notes: string 
+}> = {
+  dyness: { 
+    name: "DYNess", 
+    models: [
+      { name: "Powerbox G2", voltage: 51.2, capacityAh: 100, energyKWh: 5.12, price: 1800 },
+      { name: "Powerbox G2", voltage: 51.2, capacityAh: 200, energyKWh: 10.24, price: 3200 },
+      { name: "Powerbox G2", voltage: 51.2, capacityAh: 280, energyKWh: 14.34, price: 4200 },
+    ],
+    notes: "أداء موثوق مع ضمان 10 سنوات - متوفر في السوق اليمني" 
+  },
+  pylontech: { 
+    name: "Pylontech", 
+    models: [
+      { name: "US2000C", voltage: 51.2, capacityAh: 50, energyKWh: 2.56, price: 900 },
+      { name: "US3000C", voltage: 51.2, capacityAh: 74, energyKWh: 3.79, price: 1300 },
+      { name: "Force H2", voltage: 51.2, capacityAh: 100, energyKWh: 5.12, price: 1700 },
+    ],
+    notes: "أكثر شيوعاً في المنظومات المنزلية" 
+  },
+  byd: { 
+    name: "BYD", 
+    models: [
+      { name: "Battery Box Premium HVS", voltage: 51.2, capacityAh: 56, energyKWh: 2.88, price: 1200 },
+      { name: "Battery Box Premium HVM", voltage: 51.2, capacityAh: 112, energyKWh: 5.74, price: 2200 },
+      { name: "Battery Box Premium HVM 22.1", voltage: 51.2, capacityAh: 216, energyKWh: 11.06, price: 4000 },
+    ],
+    notes: "أداء ممتاز وعمر طويل" 
+  },
+  catl: { 
+    name: "CATL", 
+    models: [
+      { name: "EnerOne", voltage: 51.2, capacityAh: 50, energyKWh: 2.56, price: 1000 },
+      { name: "EnerOne Plus", voltage: 51.2, capacityAh: 100, energyKWh: 5.12, price: 1800 },
+      { name: "EnerOne Mega", voltage: 51.2, capacityAh: 200, energyKWh: 10.24, price: 3400 },
+    ],
+    notes: "أكبر مصنع بطاريات في العالم" 
+  },
+  solax: { 
+    name: "SolaX", 
+    models: [
+      { name: "Triple Power LFP", voltage: 51.2, capacityAh: 65, energyKWh: 3.33, price: 1100 },
+      { name: "Triple Power LFP", voltage: 51.2, capacityAh: 100, energyKWh: 5.12, price: 1700 },
+      { name: "Triple Power LFP", voltage: 51.2, capacityAh: 130, energyKWh: 6.66, price: 2200 },
+    ],
+    notes: "تكامل ممتاز مع العواكس" 
+  },
+  victron: { 
+    name: "Victron Energy", 
+    models: [
+      { name: "Lynx Smart BMS", voltage: 51.2, capacityAh: 50, energyKWh: 2.56, price: 1500 },
+      { name: "Lynx Smart BMS", voltage: 51.2, capacityAh: 100, energyKWh: 5.12, price: 2700 },
+    ],
+    notes: "جودة هولندية عالية" 
+  },
 };
 
-// Inverter brand recommendations based on capacity and system type
-const inverterBrands: Record<string, { name: string; range: string; type: string; notes: string }> = {
-  growatt: { name: "Growatt", range: "1 - 100 kW", type: "on-grid/hybrid/off-grid", notes: "أفضل قيمة مقابل السعر" },
-  sma: { name: "SMA", range: "2 - 100 kW", type: "on-grid/hybrid/off-grid", notes: "ألماني - موثوقية عالية" },
-  victron_inv: { name: "Victron Energy", range: "0.5 - 100 kW", type: "off-grid/hybrid", notes: "خيار احترافي للمنظومات المستقلة" },
-  huawei: { name: "Huawei", range: "3 - 100 kW", type: "on-grid/hybrid", notes: "كفاءة عالية وضمان طويل" },
-  solark: { name: "Sol-Ark", range: "5 - 60 kW", type: "hybrid/off-grid", notes: "أمريكي - مثالي للمنظومات الهجينة" },
-  mpp_solar: { name: "MPP Solar", range: "1 - 12 kW", type: "off-grid/hybrid", notes: "اقتصادي للمنظومات الصغيرة" },
-  deye: { name: "Deye", range: "3 - 50 kW", type: "hybrid/on-grid", notes: "خيار شائع في الشرق الأوسط" },
-  sungrow: { name: "Sungrow", range: "2 - 100 kW", type: "on-grid/hybrid", notes: "صيني رائد - كفاءة عالية" },
+// Inverter brand recommendations with detailed product models
+const inverterBrands: Record<string, { 
+  name: string; 
+  models: { name: string; powerW: number; pvVoltageRange: string; mpptCount: number; maxPvPower: number; batteryVoltage: string; notes: string; price: number }[];
+  type: string; 
+  notes: string 
+}> = {
+  luxpower: { 
+    name: "Lux Power / POWERTEK", 
+    models: [
+      { name: "SNA-EU 5000", powerW: 5000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 7500, batteryVoltage: "38.4-60V", notes: "منظومة منزلية صغيرة", price: 800 },
+      { name: "SNA-EU 8000", powerW: 8000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 12000, batteryVoltage: "38.4-60V", notes: "منظومة منزلية متوسطة", price: 1200 },
+      { name: "SNA-EU 10000", powerW: 10000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 15000, batteryVoltage: "38.4-60V", notes: "منظومة منزلية كبيرة", price: 1500 },
+      { name: "SNA-EU 12000", powerW: 12000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 18000, batteryVoltage: "38.4-60V", notes: "منظومة تجارية صغيرة", price: 1800 },
+      { name: "SNA-EU 14000", powerW: 14000, pvVoltageRange: "120-440V", mpptCount: 2, maxPvPower: 24000, batteryVoltage: "38.4-60V", notes: "منظومة تجارية متوسطة", price: 2200 },
+    ],
+    type: "hybrid/off-grid", 
+    notes: "خيار شائع في اليمن - ضمان 5 سنوات" 
+  },
+  growatt: { 
+    name: "Growatt", 
+    models: [
+      { name: "SPF 5000ES", powerW: 5000, pvVoltageRange: "120-450V", mpptCount: 2, maxPvPower: 6500, batteryVoltage: "40-60V", notes: "منزلي اقتصادي", price: 650 },
+      { name: "SPF 8000ES", powerW: 8000, pvVoltageRange: "120-450V", mpptCount: 2, maxPvPower: 10400, batteryVoltage: "40-60V", notes: "منزلي متوسط", price: 1000 },
+      { name: "SPH 10000TL3", powerW: 10000, pvVoltageRange: "100-550V", mpptCount: 2, maxPvPower: 15000, batteryVoltage: "120-480V", notes: "هجين ثلاثي الأطوار", price: 1400 },
+    ],
+    type: "on-grid/hybrid/off-grid", 
+    notes: "أفضل قيمة مقابل السعر" 
+  },
+  deye: { 
+    name: "Deye", 
+    models: [
+      { name: "SUN-5K-SG04LP3", powerW: 5000, pvVoltageRange: "120-500V", mpptCount: 2, maxPvPower: 6500, batteryVoltage: "40-60V", notes: "هجين أحادي الطور", price: 900 },
+      { name: "SUN-8K-SG04LP3", powerW: 8000, pvVoltageRange: "120-500V", mpptCount: 2, maxPvPower: 10400, batteryVoltage: "40-60V", notes: "هجين أحادي الطور", price: 1300 },
+      { name: "SUN-12K-SG04LP3", powerW: 12000, pvVoltageRange: "200-600V", mpptCount: 2, maxPvPower: 15600, batteryVoltage: "120-480V", notes: "هجين ثلاثي الأطوار", price: 1900 },
+    ],
+    type: "hybrid/on-grid", 
+    notes: "خيار شائع في الشرق الأوسط" 
+  },
+  sma: { 
+    name: "SMA", 
+    models: [
+      { name: "Sunny Island 6048", powerW: 6000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, batteryVoltage: "42-60V", notes: "عاكس بطاريات احترافي", price: 2500 },
+      { name: "Sunny Boy Storage", powerW: 5000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, batteryVoltage: "150-500V", notes: "نظام تخزين متكامل", price: 2200 },
+    ],
+    type: "on-grid/hybrid/off-grid", 
+    notes: "ألماني - موثوقية عالية" 
+  },
+  victron_inv: { 
+    name: "Victron Energy", 
+    models: [
+      { name: "MultiPlus-II 48/5000", powerW: 5000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, batteryVoltage: "38-66V", notes: "نظام متكامل مع شاحن", price: 1800 },
+      { name: "MultiPlus-II 48/8000", powerW: 8000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, batteryVoltage: "38-66V", notes: "نظام متكامل مع شاحن", price: 2600 },
+      { name: "Quattro 48/10000", powerW: 10000, pvVoltageRange: "-", mpptCount: 0, maxPvPower: 0, batteryVoltage: "38-66V", notes: "نظام مزدوج الدخول", price: 3200 },
+    ],
+    type: "off-grid/hybrid", 
+    notes: "خيار احترافي للمنظومات المستقلة" 
+  },
+  huawei: { 
+    name: "Huawei", 
+    models: [
+      { name: "SUN2000-5KTL", powerW: 5000, pvVoltageRange: "100-560V", mpptCount: 2, maxPvPower: 7500, batteryVoltage: "85-600V", notes: "هجين ذكي مع WiFi", price: 950 },
+      { name: "SUN2000-10KTL", powerW: 10000, pvVoltageRange: "200-1000V", mpptCount: 2, maxPvPower: 15000, batteryVoltage: "85-600V", notes: "هجين ثلاثي الأطوار", price: 1800 },
+    ],
+    type: "on-grid/hybrid", 
+    notes: "كفاءة عالية وضمان طويل" 
+  },
+  sungrow: { 
+    name: "Sungrow", 
+    models: [
+      { name: "SH5.0RT", powerW: 5000, pvVoltageRange: "150-800V", mpptCount: 2, maxPvPower: 7500, batteryVoltage: "150-600V", notes: "هجين أحادي الطور", price: 900 },
+      { name: "SH10RT", powerW: 10000, pvVoltageRange: "200-1000V", mpptCount: 2, maxPvPower: 15000, batteryVoltage: "150-600V", notes: "هجين ثلاثي الأطوار", price: 1700 },
+    ],
+    type: "on-grid/hybrid", 
+    notes: "صيني رائد - كفاءة عالية" 
+  },
 };
 
 // Number formatter with Arabic locale
@@ -176,6 +298,10 @@ export default function SolarCalculator() {
   });
   const [results, setResults] = useState<CalculationResults | null>(null);
   const [showResults, setShowResults] = useState(false);
+  const [selectedBatteryBrand, setSelectedBatteryBrand] = useState<string>("");
+  const [selectedBatteryModel, setSelectedBatteryModel] = useState<string>("");
+  const [selectedInverterBrand, setSelectedInverterBrand] = useState<string>("");
+  const [selectedInverterModel, setSelectedInverterModel] = useState<string>("");
 
   // Handle load type switch
   const handleLoadTypeChange = useCallback((type: "residential" | "industrial") => {
@@ -258,7 +384,7 @@ export default function SolarCalculator() {
     const batteryCapacityWh = params.batteryCapacity * params.batteryVoltage;
     const batteryCapacityKWh = batteryCapacityWh / 1000;
     const totalBatteries = isOnGrid ? 0 : Math.ceil(usableStorageWh / batteryCapacityWh);
-    const seriesBatteries = isOnGrid ? 0 : params.systemVoltage / params.batteryVoltage;
+    const seriesBatteries = isOnGrid ? 0 : Math.max(1, Math.round(params.systemVoltage / params.batteryVoltage));
     const parallelBatteries = isOnGrid ? 0 : Math.ceil(totalBatteries / seriesBatteries);
     const actualTotalBatteries = isOnGrid ? 0 : seriesBatteries * parallelBatteries;
     const totalStoredEnergy = isOnGrid ? 0 : (actualTotalBatteries * batteryCapacityWh) / 1000;
@@ -323,14 +449,73 @@ export default function SolarCalculator() {
     const panelCost = numberOfPanels * params.panelWattage * 0.4;
     // Lithium batteries cost ~$4.5/Ah vs Lead-acid ~$1.5/Ah
     const costPerAh = params.batteryType === "lithium" ? 4.5 : 1.5;
-    const batteryCost = isOnGrid ? 0 : actualTotalBatteries * params.batteryCapacity * costPerAh;
-    const inverterCost = recommendedInverter * 0.2;
+    // When a specific battery model is selected, use its price
+    const selectedBatteryModelObj = (selectedBatteryBrand && selectedBatteryModel && params.batteryType === "lithium")
+      ? lithiumBatteryBrands[selectedBatteryBrand]?.models[parseInt(selectedBatteryModel)]
+      : null;
+    const batteryCost = isOnGrid ? 0 : selectedBatteryModelObj
+      ? actualTotalBatteries * selectedBatteryModelObj.price
+      : actualTotalBatteries * params.batteryCapacity * costPerAh;
+    // When a specific inverter model is selected, use its price
+    const selectedInverterModelObj = (selectedInverterBrand && selectedInverterModel)
+      ? inverterBrands[selectedInverterBrand]?.models[parseInt(selectedInverterModel)]
+      : null;
+    const inverterCost = selectedInverterModelObj
+      ? selectedInverterModelObj.price
+      : recommendedInverter * 0.2;
     const controllerCost = isOnGrid ? 0 : recommendedController * 15;
     const accessories =
       0.15 * (panelCost + batteryCost + inverterCost + controllerCost);
     const totalCost = panelCost + batteryCost + inverterCost + controllerCost + accessories;
 
     const batteryTypeName = isOnGrid ? "-" : (params.batteryType === "lithium" ? "ليثيوم" : "حمض الرصاص");
+
+    // Selected model names and specs
+    const selectedBatteryModelName = selectedBatteryModelObj
+      ? `${lithiumBatteryBrands[selectedBatteryBrand!].name} ${selectedBatteryModelObj.name} (${selectedBatteryModelObj.capacityAh}Ah / ${selectedBatteryModelObj.energyKWh}kWh)`
+      : "";
+    const selectedInverterModelName = selectedInverterModelObj
+      ? `${inverterBrands[selectedInverterBrand!].name} ${selectedInverterModelObj.name} (${selectedInverterModelObj.powerW}W)`
+      : "";
+    const selectedBatterySpecs = selectedBatteryModelObj
+      ? `${selectedBatteryModelObj.voltage}V | ${selectedBatteryModelObj.capacityAh}Ah | ${selectedBatteryModelObj.energyKWh}kWh | $${formatUSD(selectedBatteryModelObj.price)}`
+      : "";
+    const selectedInverterSpecs = selectedInverterModelObj
+      ? `${selectedInverterModelObj.powerW}W | PV: ${selectedInverterModelObj.pvVoltageRange} | ${selectedInverterModelObj.mpptCount} MPPT | Max PV: ${selectedInverterModelObj.maxPvPower}W | Battery: ${selectedInverterModelObj.batteryVoltage} | $${formatUSD(selectedInverterModelObj.price)}`
+      : "";
+
+    // Find matching battery models from all brands
+    const matchingBatteryModels: { brand: string; model: string; voltage: number; capacityAh: number; energyKWh: number; price: number }[] = [];
+    if (!isOnGrid && params.batteryType === "lithium") {
+      Object.entries(lithiumBatteryBrands).forEach(([key, brand]) => {
+        brand.models.forEach((m) => {
+          // Include models that could meet the required storage
+          if (m.energyKWh <= usableStorageKWh * 1.5 || usableStorageKWh <= m.energyKWh * 2) {
+            matchingBatteryModels.push({ brand: brand.name, model: m.name, voltage: m.voltage, capacityAh: m.capacityAh, energyKWh: m.energyKWh, price: m.price });
+          }
+        });
+      });
+      // Sort by energyKWh closest to required
+      matchingBatteryModels.sort((a, b) => Math.abs(a.energyKWh - usableStorageKWh) - Math.abs(b.energyKWh - usableStorageKWh));
+    }
+
+    // Find matching inverter models from all brands
+    const matchingInverterModels: { brand: string; model: string; powerW: number; pvVoltageRange: string; mpptCount: number; maxPvPower: number; price: number }[] = [];
+    Object.entries(inverterBrands)
+      .filter(([_, brand]) => {
+        if (params.systemType === "on-grid") return brand.type.includes("on-grid");
+        if (params.systemType === "off-grid") return brand.type.includes("off-grid");
+        return brand.type.includes("hybrid");
+      })
+      .forEach(([key, brand]) => {
+        brand.models.forEach((m) => {
+          // Include models that could handle the required power
+          if (m.powerW >= recommendedInverter * 0.5 && m.powerW <= recommendedInverter * 2) {
+            matchingInverterModels.push({ brand: brand.name, model: m.name, powerW: m.powerW, pvVoltageRange: m.pvVoltageRange, mpptCount: m.mpptCount, maxPvPower: m.maxPvPower, price: m.price });
+          }
+        });
+      });
+    matchingInverterModels.sort((a, b) => Math.abs(a.powerW - recommendedInverter) - Math.abs(b.powerW - recommendedInverter));
 
     setResults({
       totalPeakLoad,
@@ -366,6 +551,12 @@ export default function SolarCalculator() {
       controllerCost,
       accessories,
       totalCost,
+      selectedBatteryModelName,
+      selectedInverterModelName,
+      selectedBatterySpecs,
+      selectedInverterSpecs,
+      matchingBatteryModels,
+      matchingInverterModels,
     });
     setShowResults(true);
 
@@ -373,7 +564,7 @@ export default function SolarCalculator() {
     setTimeout(() => {
       document.getElementById("results-section")?.scrollIntoView({ behavior: "smooth" });
     }, 100);
-  }, [loads, params]);
+  }, [loads, params, selectedBatteryBrand, selectedBatteryModel, selectedInverterBrand, selectedInverterModel]);
 
   // Compute totals for display
   const totalPeakLoad = loads.reduce((sum, l) => sum + l.quantity * l.power, 0);
@@ -806,9 +997,125 @@ export default function SolarCalculator() {
                     <SelectContent>
                       <SelectItem value="12">12 فولت</SelectItem>
                       <SelectItem value="24">24 فولت</SelectItem>
+                      {params.batteryType === "lithium" && (
+                        <SelectItem value="51.2">51.2 فولت (ليثيوم)</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Battery Brand Selection - only for lithium and non-on-grid */}
+                {params.batteryType === "lithium" && params.systemType !== "on-grid" && (
+                  <div className="space-y-2">
+                    <Label className="text-gray-700">ماركة البطارية</Label>
+                    <Select
+                      value={selectedBatteryBrand}
+                      onValueChange={(v) => {
+                        setSelectedBatteryBrand(v);
+                        setSelectedBatteryModel("");
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="اختر ماركة البطارية" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(lithiumBatteryBrands).map(([key, brand]) => (
+                          <SelectItem key={key} value={key}>{brand.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Battery Model Selection */}
+                {selectedBatteryBrand && params.batteryType === "lithium" && params.systemType !== "on-grid" && (
+                  <div className="space-y-2">
+                    <Label className="text-gray-700">موديل البطارية</Label>
+                    <Select
+                      value={selectedBatteryModel}
+                      onValueChange={(v) => {
+                        setSelectedBatteryModel(v);
+                        const model = lithiumBatteryBrands[selectedBatteryBrand]?.models[parseInt(v)];
+                        if (model) {
+                          updateParam("batteryCapacity", model.capacityAh);
+                          updateParam("batteryVoltage", model.voltage);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="اختر موديل البطارية" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {lithiumBatteryBrands[selectedBatteryBrand]?.models.map((model, idx) => (
+                          <SelectItem key={idx} value={String(idx)}>
+                            {model.name} - {model.capacityAh}Ah / {model.energyKWh}kWh (${formatUSD(model.price)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedBatteryModel && lithiumBatteryBrands[selectedBatteryBrand]?.models[parseInt(selectedBatteryModel)] && (
+                      <p className="text-xs text-emerald-600">
+                        {lithiumBatteryBrands[selectedBatteryBrand].name} - {lithiumBatteryBrands[selectedBatteryBrand].models[parseInt(selectedBatteryModel)].name} | {lithiumBatteryBrands[selectedBatteryBrand].notes}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Inverter Brand Selection */}
+                <div className="space-y-2">
+                  <Label className="text-gray-700">ماركة العاكس</Label>
+                  <Select
+                    value={selectedInverterBrand}
+                    onValueChange={(v) => {
+                      setSelectedInverterBrand(v);
+                      setSelectedInverterModel("");
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="اختر ماركة العاكس" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(inverterBrands)
+                        .filter(([_, brand]) => {
+                          if (params.systemType === "on-grid") return brand.type.includes("on-grid");
+                          if (params.systemType === "off-grid") return brand.type.includes("off-grid");
+                          return brand.type.includes("hybrid");
+                        })
+                        .map(([key, brand]) => (
+                          <SelectItem key={key} value={key}>{brand.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Inverter Model Selection */}
+                {selectedInverterBrand && (
+                  <div className="space-y-2">
+                    <Label className="text-gray-700">موديل العاكس</Label>
+                    <Select
+                      value={selectedInverterModel}
+                      onValueChange={(v) => {
+                        setSelectedInverterModel(v);
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="اختر موديل العاكس" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {inverterBrands[selectedInverterBrand]?.models.map((model, idx) => (
+                          <SelectItem key={idx} value={String(idx)}>
+                            {model.name} - {model.powerW}W (${formatUSD(model.price)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedInverterModel && inverterBrands[selectedInverterBrand]?.models[parseInt(selectedInverterModel)] && (
+                      <p className="text-xs text-blue-600">
+                        {inverterBrands[selectedInverterBrand].name} | {inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].pvVoltageRange} PV | {inverterBrands[selectedInverterBrand].models[parseInt(selectedInverterModel)].mpptCount} MPPT | {inverterBrands[selectedInverterBrand].notes}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Sliders */}
@@ -1046,6 +1353,19 @@ export default function SolarCalculator() {
                         value={`${formatNumber(results.totalStoredEnergy, 2)} كيلوواط·س (${formatNumber(results.totalStoredEnergyKWh, 2)} كيلوواط·ساعة)`}
                         unit=""
                       />
+                      {results.selectedBatteryModelName && (
+                        <>
+                          <Separator className="my-2 bg-green-200" />
+                          <div className="rounded-lg bg-green-50 p-3">
+                            <h4 className="font-bold text-green-800 text-sm mb-2 flex items-center gap-1">
+                              <Battery className="size-4 text-green-500" />
+                              البطارية المحددة
+                            </h4>
+                            <p className="font-semibold text-green-900 text-sm">{results.selectedBatteryModelName}</p>
+                            <p className="text-xs text-green-700 mt-1">{results.selectedBatterySpecs}</p>
+                          </div>
+                        </>
+                      )}
                     </>
                   )}
                 </CardContent>
@@ -1087,6 +1407,19 @@ export default function SolarCalculator() {
                     value="220"
                     unit="فولت تيار متردد"
                   />
+                  {results.selectedInverterModelName && (
+                    <>
+                      <Separator className="my-2 bg-blue-200" />
+                      <div className="rounded-lg bg-blue-50 p-3">
+                        <h4 className="font-bold text-blue-800 text-sm mb-2 flex items-center gap-1">
+                          <Zap className="size-4 text-blue-500" />
+                          العاكس المحدد
+                        </h4>
+                        <p className="font-semibold text-blue-900 text-sm">{results.selectedInverterModelName}</p>
+                        <p className="text-xs text-blue-700 mt-1">{results.selectedInverterSpecs}</p>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1258,7 +1591,7 @@ export default function SolarCalculator() {
               </Card>
 
               {/* Card 8: Brand Recommendations */}
-              <Card className="border-amber-200/60 shadow-sm overflow-hidden">
+              <Card className="border-amber-200/60 shadow-sm overflow-hidden lg:col-span-2">
                 <div className="h-1 bg-gradient-to-l from-rose-400 to-pink-500" />
                 <CardHeader>
                   <div className="flex items-center gap-2">
@@ -1267,55 +1600,123 @@ export default function SolarCalculator() {
                     </div>
                     <div>
                       <CardTitle className="text-lg text-gray-800">توصيات الشركات والمعدات</CardTitle>
-                      <CardDescription>شركات موثوقة بناءً على حجم المنظومة ونوعها</CardDescription>
+                      <CardDescription>معدات موصى بها بناءً على حجم المنظومة ونوعها</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Inverter Recommendation */}
+                <CardContent className="space-y-6">
+                  {/* Inverter Models Table */}
                   <div>
-                    <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-1">
+                    <h4 className="font-bold text-gray-700 mb-3 flex items-center gap-1">
                       <Zap className="size-4 text-blue-500" />
                       عواكس (Inverters) موصى بها
                     </h4>
-                    <div className="rounded-lg bg-blue-50 p-3">
-                      <p className="font-semibold text-blue-800 text-sm">{results.recommendedInverterBrand}</p>
-                      <div className="mt-2 space-y-1">
-                        {Object.entries(inverterBrands)
-                          .filter(([_, brand]) => {
-                            if (params.systemType === "on-grid") return brand.type.includes("on-grid");
-                            if (params.systemType === "off-grid") return brand.type.includes("off-grid");
-                            return brand.type.includes("hybrid");
-                          })
-                          .slice(0, 4)
-                          .map(([key, brand]) => (
-                            <div key={key} className="flex items-start gap-2 text-xs">
-                              <Badge variant="outline" className="shrink-0 border-blue-200 text-blue-700 text-[10px]">
-                                {brand.name}
-                              </Badge>
-                              <span className="text-gray-600">{brand.range} - {brand.notes}</span>
-                            </div>
-                          ))}
+                    {results.matchingInverterModels.length > 0 ? (
+                      <div className="overflow-x-auto rounded-lg border border-blue-200">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-blue-50/80 hover:bg-blue-50/80">
+                              <TableHead className="text-right font-bold text-gray-700 text-xs">الشركة</TableHead>
+                              <TableHead className="text-right font-bold text-gray-700 text-xs">الموديل</TableHead>
+                              <TableHead className="text-right font-bold text-gray-700 text-xs">القدرة</TableHead>
+                              <TableHead className="text-right font-bold text-gray-700 text-xs">مدى PV</TableHead>
+                              <TableHead className="text-right font-bold text-gray-700 text-xs">MPPT</TableHead>
+                              <TableHead className="text-right font-bold text-gray-700 text-xs">أقصى PV</TableHead>
+                              <TableHead className="text-right font-bold text-gray-700 text-xs">السعر</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {results.matchingInverterModels.slice(0, 8).map((m, i) => (
+                              <TableRow key={i} className={m.brand.includes("POWERTEK") || m.brand.includes("Lux") ? "bg-amber-50/50" : ""}>
+                                <TableCell className="text-xs font-semibold">
+                                  {(m.brand.includes("POWERTEK") || m.brand.includes("Lux")) && (
+                                    <Badge className="bg-amber-500 text-white text-[10px] ml-1">★</Badge>
+                                  )}
+                                  {m.brand}
+                                </TableCell>
+                                <TableCell className="text-xs">{m.model}</TableCell>
+                                <TableCell className="text-xs font-semibold text-blue-700">{formatNumber(m.powerW)}W</TableCell>
+                                <TableCell className="text-xs">{m.pvVoltageRange}</TableCell>
+                                <TableCell className="text-xs text-center">{m.mpptCount}</TableCell>
+                                <TableCell className="text-xs">{m.maxPvPower > 0 ? `${formatNumber(m.maxPvPower)}W` : "-"}</TableCell>
+                                <TableCell className="text-xs font-semibold text-emerald-700">${formatUSD(m.price)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="rounded-lg bg-blue-50 p-3">
+                        <p className="font-semibold text-blue-800 text-sm">{results.recommendedInverterBrand}</p>
+                        <div className="mt-2 space-y-1">
+                          {Object.entries(inverterBrands)
+                            .filter(([_, brand]) => {
+                              if (params.systemType === "on-grid") return brand.type.includes("on-grid");
+                              if (params.systemType === "off-grid") return brand.type.includes("off-grid");
+                              return brand.type.includes("hybrid");
+                            })
+                            .slice(0, 4)
+                            .map(([key, brand]) => (
+                              <div key={key} className="flex items-start gap-2 text-xs">
+                                <Badge variant="outline" className="shrink-0 border-blue-200 text-blue-700 text-[10px]">
+                                  {brand.name}
+                                </Badge>
+                                <span className="text-gray-600">{brand.notes}</span>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Battery Recommendation */}
-                  {params.systemType !== "on-grid" && (
+                  {/* Battery Models Table */}
+                  {params.systemType !== "on-grid" && params.batteryType === "lithium" && (
                     <div>
-                      <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-1">
+                      <h4 className="font-bold text-gray-700 mb-3 flex items-center gap-1">
                         <Battery className="size-4 text-green-500" />
-                        بطاريات {params.batteryType === "lithium" ? "ليثيوم" : "حمض الرصاص"} موصى بها
+                        بطاريات ليثيوم موصى بها
                       </h4>
-                      <div className="rounded-lg bg-green-50 p-3">
-                        <div className="flex flex-wrap gap-1 mb-2">
-                          {results.recommendedBatteryBrands.map((brand, i) => (
-                            <Badge key={i} variant="outline" className="border-green-200 text-green-700">
-                              {brand}
-                            </Badge>
-                          ))}
+                      {results.matchingBatteryModels.length > 0 ? (
+                        <div className="overflow-x-auto rounded-lg border border-green-200">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-green-50/80 hover:bg-green-50/80">
+                                <TableHead className="text-right font-bold text-gray-700 text-xs">الشركة</TableHead>
+                                <TableHead className="text-right font-bold text-gray-700 text-xs">الموديل</TableHead>
+                                <TableHead className="text-right font-bold text-gray-700 text-xs">الجهد</TableHead>
+                                <TableHead className="text-right font-bold text-gray-700 text-xs">السعة (Ah)</TableHead>
+                                <TableHead className="text-right font-bold text-gray-700 text-xs">الطاقة (kWh)</TableHead>
+                                <TableHead className="text-right font-bold text-gray-700 text-xs">السعر</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {results.matchingBatteryModels.slice(0, 8).map((m, i) => (
+                                <TableRow key={i} className={m.brand === "DYNess" ? "bg-amber-50/50" : ""}>
+                                  <TableCell className="text-xs font-semibold">
+                                    {m.brand === "DYNess" && (
+                                      <Badge className="bg-amber-500 text-white text-[10px] ml-1">★</Badge>
+                                    )}
+                                    {m.brand}
+                                  </TableCell>
+                                  <TableCell className="text-xs">{m.model}</TableCell>
+                                  <TableCell className="text-xs">{m.voltage}V</TableCell>
+                                  <TableCell className="text-xs font-semibold text-green-700">{m.capacityAh}Ah</TableCell>
+                                  <TableCell className="text-xs font-semibold text-green-700">{m.energyKWh}kWh</TableCell>
+                                  <TableCell className="text-xs font-semibold text-emerald-700">${formatUSD(m.price)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
                         </div>
-                        {params.batteryType === "lithium" && (
+                      ) : (
+                        <div className="rounded-lg bg-green-50 p-3">
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {results.recommendedBatteryBrands.map((brand, i) => (
+                              <Badge key={i} variant="outline" className="border-green-200 text-green-700">
+                                {brand}
+                              </Badge>
+                            ))}
+                          </div>
                           <div className="mt-2 space-y-1">
                             {Object.entries(lithiumBatteryBrands)
                               .slice(0, 5)
@@ -1324,11 +1725,30 @@ export default function SolarCalculator() {
                                   <Badge variant="outline" className="shrink-0 border-green-200 text-green-700 text-[10px]">
                                     {brand.name}
                                   </Badge>
-                                  <span className="text-gray-600">{brand.capacities} - {brand.notes}</span>
+                                  <span className="text-gray-600">{brand.notes}</span>
                                 </div>
                               ))}
                           </div>
-                        )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Lead-acid battery recommendation */}
+                  {params.systemType !== "on-grid" && params.batteryType === "lead-acid" && (
+                    <div>
+                      <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-1">
+                        <Battery className="size-4 text-green-500" />
+                        بطاريات حمض الرصاص موصى بها
+                      </h4>
+                      <div className="rounded-lg bg-green-50 p-3">
+                        <div className="flex flex-wrap gap-1">
+                          {results.recommendedBatteryBrands.map((brand, i) => (
+                            <Badge key={i} variant="outline" className="border-green-200 text-green-700">
+                              {brand}
+                            </Badge>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   )}
