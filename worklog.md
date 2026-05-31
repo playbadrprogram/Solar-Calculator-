@@ -81,3 +81,31 @@ Stage Summary:
 - Fix: Added turbopack.resolveAlias mapping in next.config.ts to redirect subpath imports to CJS files
 - Files modified: /home/z/my-project/next.config.ts
 - Build status: ✅ Production build succeeds, ✅ Dev server starts without errors
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Convert Solar Calculator to PWA (Progressive Web App) for continuous usage
+
+Work Log:
+- Created manifest.json with Arabic app name, theme color (#F59E0B), standalone display mode
+- Generated app icons (icon-192.png, icon-512.png) using z-ai-generate
+- Created favicon.svg with sun/panel design
+- Created Service Worker (sw.js) with network-first strategy + cache fallback for offline support
+- Updated layout.tsx with PWA metadata (manifest, apple-web-app, viewport, theme-color)
+- Added Service Worker registration script in layout.tsx
+- Added PWA install banner to solar-calculator.tsx:
+  - Shows install prompt when browser supports beforeinstallprompt
+  - "Install App" button triggers native install dialog
+  - "Later" button dismisses banner
+  - iOS/Safari fallback: shows manual install instructions
+- Added Smartphone and Monitor icons from lucide-react
+- Build succeeds without errors
+
+Stage Summary:
+- App is now a fully functional PWA
+- Can be installed on Android, desktop Chrome, Edge as standalone app
+- Shows install instructions for iOS/Safari users
+- Service Worker enables offline caching
+- Files created: public/manifest.json, public/sw.js, public/favicon.svg, public/icon-192.png, public/icon-512.png
+- Files modified: src/app/layout.tsx, src/components/solar-calculator.tsx

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   Sun,
   SunMedium,
@@ -24,6 +24,8 @@ import {
   ChevronUp,
   Cable,
   AlertTriangle,
+  Smartphone,
+  Monitor,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -366,6 +368,56 @@ export default function SolarCalculator() {
   });
   const [projectInfoExpanded, setProjectInfoExpanded] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
+
+  // PWA Install prompt
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(false);
+
+  // BeforeInstallPromptEvent type
+  type BeforeInstallPromptEvent = Event & {
+    prompt: () => Promise<void>;
+    userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+  };
+
+  useEffect(() => {
+    // Check if already installed
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      setIsInstalled(true);
+      return;
+    }
+    // Listen for beforeinstallprompt
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+      setShowInstallBanner(true);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    // Listen for appinstalled
+    window.addEventListener("appinstalled", () => {
+      setIsInstalled(true);
+      setShowInstallBanner(false);
+      setDeferredPrompt(null);
+    });
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handler);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    try {
+      await (deferredPrompt as BeforeInstallPromptEvent).prompt();
+      const choice = await (deferredPrompt as BeforeInstallPromptEvent).userChoice;
+      if (choice.outcome === "accepted") {
+        setIsInstalled(true);
+        setShowInstallBanner(false);
+      }
+    } catch {
+      // Fallback: show instructions
+    }
+    setDeferredPrompt(null);
+  };
 
   // Handle load type switch
   const handleLoadTypeChange = useCallback((type: "residential" | "industrial") => {
@@ -830,6 +882,56 @@ ${results ? `إجمالي الاستهلاك: ${formatNumber(results.totalDailyC
         </div>
         <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-l from-yellow-300 via-amber-300 to-orange-400" />
       </header>
+
+      {/* PWA Install Banner */}
+      {showInstallBanner && !isInstalled && (
+        <div className="bg-gradient-to-l from-amber-500 to-orange-500 text-white print-hide">
+          <div className="mx-auto max-w-6xl px-4 py-3">
+            <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-lg bg-white/20 backdrop-blur-sm shrink-0">
+                  <Smartphone className="size-5 text-white" />
+                </div>
+                <div className="text-center sm:text-right">
+                  <p className="font-bold text-sm">ثبّت التطبيق على جهازك</p>
+                  <p className="text-xs text-amber-100">استخدم حاسبة المنظومة الشمسية كتطبيق مستقل بدون متصفح</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={handleInstallApp}
+                  size="sm"
+                  className="gap-2 bg-white text-amber-700 hover:bg-amber-50 font-bold"
+                >
+                  <Monitor className="size-4" />
+                  تثبيت التطبيق
+                </Button>
+                <Button
+                  onClick={() => setShowInstallBanner(false)}
+                  variant="ghost"
+                  size="sm"
+                  className="text-white/80 hover:text-white hover:bg-white/10"
+                >
+                  لاحقاً
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Install Instructions (for iOS/Safari) */}
+      {!showInstallBanner && !isInstalled && (
+        <div className="bg-amber-50 border-b border-amber-200 print-hide">
+          <div className="mx-auto max-w-6xl px-4 py-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-amber-700">
+                💡 <strong>نصيحة:</strong> يمكنك تثبيت هذا التطبيق على جهازك للوصول السريع - من قائمة المتصفح اختر "إضافة إلى الشاشة الرئيسية" أو "تثبيت التطبيق"
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="mx-auto max-w-6xl px-4 py-6 sm:py-10">
         {/* Project Information - Feature 2 */}
