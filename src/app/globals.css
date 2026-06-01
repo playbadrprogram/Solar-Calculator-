@@ -133,3 +133,49 @@
 .animate-spin-slow {
   animation: spin-slow 8s linear infinite;
 }
+
+/* Dark mode specific overrides for solar calculator */
+.dark .dark\:bg-amber-950\/30 {
+  background-color: rgba(69, 26, 3, 0.3);
+}
+
+.dark .dark\:bg-gray-900 {
+  background-color: rgb(17, 24, 39);
+}
+
+/* Smooth transitions for dark mode */
+html {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Custom scrollbar for dark mode */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #1a1a2e;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Print styles remain the same */
+@media print {
+  header, footer, .no-print, button, .print-hide { display: none !important; }
+  #report-content {
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  body { background: white !important; }
+  .print-break { page-break-before: always; }
+  table { page-break-inside: avoid; }
+  .card-print { border: 1px solid #ddd !important; box-shadow: none !important; }
+}
