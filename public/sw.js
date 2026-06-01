@@ -1,4 +1,4 @@
-const CACHE_NAME = 'solar-calc-v2';
+const CACHE_NAME = 'solar-calc-v3';
 const BASE = '/Solar-Calculator-';
 const STATIC_ASSETS = [
   BASE + '/',
