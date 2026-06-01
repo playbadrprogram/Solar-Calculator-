@@ -428,6 +428,7 @@ export default function SolarCalculator() {
   const [deferredPrompt, setDeferredPrompt] = useState<Event | null>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [showInstallInstructions, setShowInstallInstructions] = useState(false);
 
   // --- Translation Helper ---
   const t = useCallback((key: string): string => {
@@ -477,22 +478,26 @@ export default function SolarCalculator() {
   }, []);
 
   const handleInstallApp = async () => {
-    if (!deferredPrompt) return;
-    try {
-      const promptEvent = deferredPrompt as Event & {
-        prompt: () => Promise<void>;
-        userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-      };
-      await promptEvent.prompt();
-      const choice = await promptEvent.userChoice;
-      if (choice.outcome === "accepted") {
-        setIsInstalled(true);
-        setShowInstallBanner(false);
+    if (deferredPrompt) {
+      try {
+        const promptEvent = deferredPrompt as Event & {
+          prompt: () => Promise<void>;
+          userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+        };
+        await promptEvent.prompt();
+        const choice = await promptEvent.userChoice;
+        if (choice.outcome === "accepted") {
+          setIsInstalled(true);
+          setShowInstallBanner(false);
+        }
+      } catch {
+        // fallback to manual instructions
       }
-    } catch {
-      // fallback
+      setDeferredPrompt(null);
+    } else {
+      // No deferred prompt available - show manual install instructions
+      setShowInstallInstructions(true);
     }
-    setDeferredPrompt(null);
   };
 
   // --- Computed: Selected Governorate Data ---
@@ -1024,6 +1029,18 @@ ${language === "ar" ? "التكلفة" : "Cost"}: $${formatUSD(Math.round(result
                 <Globe className="size-4" />
                 {language === "ar" ? "EN" : "عربي"}
               </Button>
+              {/* Install App Button - always visible */}
+              {!isInstalled && (
+                <Button
+                  size="sm"
+                  onClick={handleInstallApp}
+                  className="gap-1 bg-white/20 text-white hover:bg-white/30 backdrop-blur-sm border border-white/30"
+                >
+                  <Download className="size-4" />
+                  <span className="hidden sm:inline">{language === "ar" ? "تثبيت التطبيق" : "Install App"}</span>
+                  <span className="sm:hidden">{language === "ar" ? "تثبيت" : "Install"}</span>
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -1054,6 +1071,69 @@ ${language === "ar" ? "التكلفة" : "Cost"}: $${formatUSD(Math.round(result
                 </Button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Install Instructions Modal */}
+      {showInstallInstructions && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print-hide" onClick={() => setShowInstallInstructions(false)}>
+          <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl ${darkMode ? "bg-gray-800 text-gray-100" : "bg-white text-gray-800"}`} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-amber-100 shrink-0">
+                <Smartphone className="size-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">{language === "ar" ? "تثبيت التطبيق" : "Install App"}</h3>
+                <p className={`text-sm ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+                  {language === "ar" ? "اتبع الخطوات التالية حسب متصفحك" : "Follow these steps based on your browser"}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {/* Android Chrome */}
+              <div className={`rounded-xl p-4 ${darkMode ? "bg-gray-700" : "bg-amber-50"}`}>
+                <h4 className="font-bold text-sm mb-2 flex items-center gap-2">
+                  <span className="text-lg">🤖</span> {language === "ar" ? "أندرويد - كروم" : "Android - Chrome"}
+                </h4>
+                <ol className={`text-sm space-y-1 list-decimal list-inside ${darkMode ? "text-gray-300" : "text-gray-600"}`}>
+                  <li>{language === "ar" ? "اضغط على أيقونة ⋮ (القائمة) أعلى المتصفح" : "Tap the ⋮ menu icon in browser toolbar"}</li>
+                  <li>{language === "ar" ? "اختر \"إضافة إلى الشاشة الرئيسية\" أو \"تثبيت التطبيق\"" : "Select \"Add to Home Screen\" or \"Install App\""}</li>
+                  <li>{language === "ar" ? "اضغط \"تثبيت\" لتأكيد" : "Tap \"Install\" to confirm"}</li>
+                </ol>
+              </div>
+
+              {/* iPhone Safari */}
+              <div className={`rounded-xl p-4 ${darkMode ? "bg-gray-700" : "bg-blue-50"}`}>
+                <h4 className="font-bold text-sm mb-2 flex items-center gap-2">
+                  <span className="text-lg">🍎</span> {language === "ar" ? "آيفون - سفاري" : "iPhone - Safari"}
+                </h4>
+                <ol className={`text-sm space-y-1 list-decimal list-inside ${darkMode ? "text-gray-300" : "text-gray-600"}`}>
+                  <li>{language === "ar" ? "اضغط على أيقونة المشاركة ⬆️ أسفل الشاشة" : "Tap the Share ⬆️ icon at the bottom"}</li>
+                  <li>{language === "ar" ? "مرر للأسفل واختر \"إضافة إلى الشاشة الرئيسية\"" : "Scroll down and select \"Add to Home Screen\""}</li>
+                  <li>{language === "ar" ? "اضغط \"إضافة\" لتأكيد" : "Tap \"Add\" to confirm"}</li>
+                </ol>
+              </div>
+
+              {/* Desktop Chrome */}
+              <div className={`rounded-xl p-4 ${darkMode ? "bg-gray-700" : "bg-green-50"}`}>
+                <h4 className="font-bold text-sm mb-2 flex items-center gap-2">
+                  <span className="text-lg">💻</span> {language === "ar" ? "كمبيوتر - كروم" : "Desktop - Chrome"}
+                </h4>
+                <ol className={`text-sm space-y-1 list-decimal list-inside ${darkMode ? "text-gray-300" : "text-gray-600"}`}>
+                  <li>{language === "ar" ? "اضغط على أيقونة التثبيت ⊕ في شريط العنوان" : "Click the install icon ⊕ in the address bar"}</li>
+                  <li>{language === "ar" ? "أو من القائمة ⋮ اختر \"تثبيت التطبيق\"" : "Or from menu ⋮ select \"Install App\""}</li>
+                </ol>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => setShowInstallInstructions(false)}
+              className="w-full mt-4 gap-2 bg-amber-500 hover:bg-amber-600 text-white font-bold"
+            >
+              {language === "ar" ? "فهمت" : "Got it"}
+            </Button>
           </div>
         </div>
       )}
