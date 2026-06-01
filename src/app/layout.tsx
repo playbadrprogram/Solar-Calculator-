@@ -3,6 +3,8 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { Providers } from "@/components/providers";
 
+const BASE_PATH = "/Solar-Calculator-";
+
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -14,10 +16,10 @@ export const metadata: Metadata = {
   title: "حاسبة المنظومة الشمسية - Solar System Calculator",
   description:
     "أداة احترافية لحساب مكونات المنظومة الشمسية من الألواح والبطاريات والعاكس ومنظم الشحن",
-  manifest: "/manifest.json",
+  manifest: `${BASE_PATH}/manifest.json`,
   icons: {
-    icon: "/favicon.svg",
-    apple: "/icon-192.png",
+    icon: `${BASE_PATH}/favicon.svg`,
+    apple: `${BASE_PATH}/icon-192.png`,
   },
   appleWebApp: {
     capable: true,
@@ -40,11 +42,11 @@ export default function RootLayout({
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
       <head>
-        <link rel="manifest" href="/manifest.json" />
+        <link rel="manifest" href={`${BASE_PATH}/manifest.json`} />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="حاسبة شمسية" />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <link rel="apple-touch-icon" href={`${BASE_PATH}/icon-192.png`} />
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -68,7 +70,11 @@ export default function RootLayout({
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').catch(function() {});
+                  navigator.serviceWorker.register('${BASE_PATH}/sw.js', { scope: '${BASE_PATH}/' }).then(function(reg) {
+                    console.log('Service Worker registered with scope:', reg.scope);
+                  }).catch(function(err) {
+                    console.error('Service Worker registration failed:', err);
+                  });
                 });
               }
             `,
