@@ -1,10 +1,11 @@
-const CACHE_NAME = 'solar-calc-v1';
+const CACHE_NAME = 'solar-calc-v2';
+const BASE = '/Solar-Calculator-';
 const STATIC_ASSETS = [
-  '/',
-  '/manifest.json',
-  '/favicon.svg',
-  '/icon-192.png',
-  '/icon-512.png',
+  BASE + '/',
+  BASE + '/manifest.json',
+  BASE + '/favicon.svg',
+  BASE + '/icon-192.png',
+  BASE + '/icon-512.png',
 ];
 
 // Install: cache static assets
@@ -33,16 +34,12 @@ self.addEventListener('activate', (event) => {
 
 // Fetch: Network-first strategy with cache fallback
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests
   if (event.request.method !== 'GET') return;
-  
-  // Skip chrome-extension and other non-http requests
   if (!event.request.url.startsWith('http')) return;
 
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Clone the response and cache it
         const responseClone = response.clone();
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(event.request, responseClone);
@@ -50,14 +47,10 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => {
-        // If network fails, try cache
         return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          // If not in cache and it's a navigation request, return the cached index
+          if (cachedResponse) return cachedResponse;
           if (event.request.mode === 'navigate') {
-            return caches.match('/');
+            return caches.match(BASE + '/');
           }
           return new Response('Offline', { status: 503, statusText: 'Offline' });
         });
