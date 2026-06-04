@@ -3,7 +3,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { Providers } from "@/components/providers";
 
-const BASE_PATH = "/Solar-Calculator-";
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -70,7 +70,9 @@ export default function RootLayout({
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('${BASE_PATH}/sw.js', { scope: '${BASE_PATH}/' }).then(function(reg) {
+                  var basePath = '${BASE_PATH}';
+                  var swScope = basePath ? basePath + '/' : '/';
+                  navigator.serviceWorker.register(basePath + '/sw.js', { scope: swScope }).then(function(reg) {
                     console.log('Service Worker registered with scope:', reg.scope);
                   }).catch(function(err) {
                     console.error('Service Worker registration failed:', err);
