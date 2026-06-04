@@ -1,5 +1,5 @@
-const CACHE_NAME = 'solar-calc-v4';
-const BASE = '/Solar-Calculator-';
+const CACHE_NAME = 'solar-calc-v5';
+const BASE = '';
 const STATIC_ASSETS = [
   BASE + '/',
   BASE + '/manifest.json',
@@ -39,7 +39,6 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Only cache successful responses
         if (response.status === 200) {
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
