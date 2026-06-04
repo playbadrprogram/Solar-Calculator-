@@ -462,11 +462,11 @@ export default function SolarCalculator() {
 
   // --- Visitor Counter Effect ---
   useEffect(() => {
-    const countUrl = "https://api.countapi.xyz/hit/solar-calculator-yemen/visits";
+    const countUrl = "https://api.counterapi.dev/v1/solar-calculator-yemen/visits/up";
     fetch(countUrl)
       .then((res) => res.json())
       .then((data) => {
-        if (data?.value) setVisitorCount(data.value);
+        if (data?.count) setVisitorCount(data.count);
       })
       .catch(() => {
         // Silently fail - counter is not critical
