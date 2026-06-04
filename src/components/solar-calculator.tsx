@@ -38,6 +38,8 @@ import {
   PiggyBank,
   Leaf,
   Fuel,
+  Info,
+  Eye,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -430,6 +432,9 @@ export default function SolarCalculator() {
   const [isInstalled, setIsInstalled] = useState(false);
   const [showInstallInstructions, setShowInstallInstructions] = useState(false);
 
+  // --- Visitor Counter State ---
+  const [visitorCount, setVisitorCount] = useState<number | null>(null);
+
   // --- Translation Helper ---
   const t = useCallback((key: string): string => {
     return translations[language]?.[key] || key;
@@ -453,6 +458,19 @@ export default function SolarCalculator() {
   // --- Load Saved Projects ---
   useEffect(() => {
     setSavedProjectsList(loadAllProjects());
+  }, []);
+
+  // --- Visitor Counter Effect ---
+  useEffect(() => {
+    const countUrl = "https://api.countapi.xyz/hit/solar-calculator-yemen/visits";
+    fetch(countUrl)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.value) setVisitorCount(data.value);
+      })
+      .catch(() => {
+        // Silently fail - counter is not critical
+      });
   }, []);
 
   // --- PWA Effect ---
@@ -2378,6 +2396,12 @@ ${language === "ar" ? "التكلفة" : "Cost"}: $${formatUSD(Math.round(result
           <Sun className="size-4 text-amber-500" />
           <span>{language === "ar" ? "حاسبة المنظومة الشمسية - أداة احترافية لتصميم المنظومات الشمسية" : "Solar System Calculator - Professional Design Tool"}</span>
         </div>
+        {visitorCount !== null && (
+          <div className="flex items-center justify-center gap-1.5 mt-2 text-xs opacity-70">
+            <Eye className="size-3" />
+            <span>{language === "ar" ? `${visitorCount} زيارة` : `${visitorCount} visits`}</span>
+          </div>
+        )}
       </footer>
     </div>
   );
