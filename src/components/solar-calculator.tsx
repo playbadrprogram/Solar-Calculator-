@@ -40,6 +40,12 @@ import {
   Fuel,
   Info,
   Eye,
+  MapPin,
+  MessageCircle,
+  Send,
+  X,
+  Wrench,
+  BookOpen,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,7 +78,17 @@ import {
   monthNamesEn,
   translations,
   type SolarRadiationData,
+  getAllCountries,
+  getCountryByCode,
+  estimateSolarRadiation,
+  getLocalizedPrices,
+  type CountryData,
 } from "@/lib/solar-data";
+import {
+  getInstallationGuidelines,
+  getSystemDiagram,
+  getSystemRecommendations,
+} from "@/lib/solar-guidelines";
 import {
   calculateAllCables,
   calculateBreakers,
@@ -435,6 +451,19 @@ export default function SolarCalculator() {
   // --- Visitor Counter State ---
   const [visitorCount, setVisitorCount] = useState<number | null>(null);
 
+  // --- Country & Global Location State ---
+  const [selectedCountry, setSelectedCountry] = useState<string>("YE");
+  const [useCustomLocation, setUseCustomLocation] = useState(false);
+  const [customLatitude, setCustomLatitude] = useState<number>(0);
+  const [customLongitude, setCustomLongitude] = useState<number>(0);
+  const [detectingLocation, setDetectingLocation] = useState(false);
+
+  // --- AI Assistant State ---
+  const [showAiChat, setShowAiChat] = useState(false);
+  const [aiMessages, setAiMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [aiInput, setAiInput] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+
   // --- Translation Helper ---
   const t = useCallback((key: string): string => {
     return translations[language]?.[key] || key;
@@ -518,10 +547,27 @@ export default function SolarCalculator() {
     }
   };
 
-  // --- Computed: Selected Governorate Data ---
-  const governorateData: SolarRadiationData | null = selectedGovernorate
-    ? yemenGovernorates.find(g => g.name === selectedGovernorate || g.nameEn === selectedGovernorate) || null
-    : null;
+  // --- Computed: Country Data ---
+  const currentCountry = getCountryByCode(selectedCountry);
+  const currentCities = currentCountry?.cities || [];
+  const localizedPrices = currentCountry ? getLocalizedPrices(currentCountry) : null;
+
+  // --- Computed: Selected Governorate/City Data ---
+  const governorateData: SolarRadiationData | null = useCustomLocation
+    ? (customLatitude !== 0 ? {
+        name: "Custom",
+        nameEn: "Custom",
+        latitude: customLatitude,
+        longitude: customLongitude,
+        annualAvg: estimateSolarRadiation(customLatitude).annualAvg,
+        monthly: estimateSolarRadiation(customLatitude).monthly,
+        optimalTiltAngle: estimateSolarRadiation(customLatitude).optimalTiltAngle,
+        peakSunHours: estimateSolarRadiation(customLatitude).peakSunHours,
+      } : null)
+    : selectedGovernorate
+      ? (currentCountry?.cities.find(g => g.name === selectedGovernorate || g.nameEn === selectedGovernorate) ||
+         yemenGovernorates.find(g => g.name === selectedGovernorate || g.nameEn === selectedGovernorate) || null)
+      : null;
 
   // --- Computed: Selected Inverter Model ---
   const selectedInverterModelObj = (selectedInverterBrand && selectedInverterModel)
@@ -651,8 +697,11 @@ export default function SolarCalculator() {
       else recommendedInverterBrand = "SMA, Huawei, Sungrow, Sol-Ark";
     }
 
-    const panelCost = numberOfPanels * params.panelWattage * 0.4;
-    const costPerAh = params.batteryType === "lithium" ? 4.5 : 1.5;
+    const panelCostPerWatt = localizedPrices?.panelPricePerWatt ?? 0.4;
+    const panelCost = numberOfPanels * params.panelWattage * panelCostPerWatt;
+    const costPerAh = params.batteryType === "lithium"
+      ? (localizedPrices?.lithiumBatteryPricePerKWh ?? 4.5)
+      : (localizedPrices?.leadAcidBatteryPricePerAh12V ?? 1.5);
     const selectedBatteryModelObj = (selectedBatteryBrand && selectedBatteryModel && params.batteryType === "lithium")
       ? lithiumBatteryBrands[selectedBatteryBrand]?.models[parseInt(selectedBatteryModel)]
       : null;
@@ -662,9 +711,11 @@ export default function SolarCalculator() {
     const selInvModelObj = (selectedInverterBrand && selectedInverterModel)
       ? inverterBrands[selectedInverterBrand]?.models[parseInt(selectedInverterModel)]
       : null;
-    const inverterCost = selInvModelObj ? selInvModelObj.price : recommendedInverter * 0.2;
+    const inverterCostPerWatt = localizedPrices?.inverterPricePerWatt ?? 0.2;
+    const inverterCost = selInvModelObj ? selInvModelObj.price : recommendedInverter * inverterCostPerWatt;
     const controllerCost = isOnGrid ? 0 : recommendedController * 15;
-    const accessories = 0.15 * (panelCost + batteryCost + inverterCost + controllerCost);
+    const installPct = localizedPrices?.installationCostPercent ?? 15;
+    const accessories = (installPct / 100) * (panelCost + batteryCost + inverterCost + controllerCost);
     const totalCost = panelCost + batteryCost + inverterCost + controllerCost + accessories;
 
     const batteryTypeName = isOnGrid ? "-" : (params.batteryType === "lithium" ? (language === "ar" ? "ليثيوم" : "Lithium") : (language === "ar" ? "حمض الرصاص" : "Lead-Acid"));
@@ -789,7 +840,7 @@ export default function SolarCalculator() {
     setTimeout(() => {
       document.getElementById("results-section")?.scrollIntoView({ behavior: "smooth" });
     }, 100);
-  }, [loads, params, selectedBatteryBrand, selectedBatteryModel, selectedInverterBrand, selectedInverterModel, panelSpecs, language]);
+  }, [loads, params, selectedBatteryBrand, selectedBatteryModel, selectedInverterBrand, selectedInverterModel, panelSpecs, language, localizedPrices]);
 
   // --- Computed Totals ---
   const totalPeakLoad = loads.reduce((sum, l) => sum + l.quantity * l.power, 0);
@@ -974,6 +1025,63 @@ ${language === "ar" ? "التكلفة" : "Cost"}: $${formatUSD(Math.round(result
       setParams(prev => ({ ...prev, sunshineHours: governorateData.peakSunHours }));
     }
   };
+
+  // --- Geolocation ---
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) return;
+    setDetectingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCustomLatitude(Math.round(pos.coords.latitude * 100) / 100);
+        setCustomLongitude(Math.round(pos.coords.longitude * 100) / 100);
+        setUseCustomLocation(true);
+        setSelectedGovernorate("");
+        setDetectingLocation(false);
+        const solarData = estimateSolarRadiation(pos.coords.latitude);
+        setParams(prev => ({ ...prev, sunshineHours: solarData.peakSunHours }));
+      },
+      () => {
+        setDetectingLocation(false);
+      },
+      { enableHighAccuracy: false, timeout: 10000 }
+    );
+  };
+
+  // --- Handle Country Change ---
+  const handleCountryChange = useCallback((code: string) => {
+    setSelectedCountry(code);
+    setSelectedGovernorate("");
+    setUseCustomLocation(false);
+    const country = getCountryByCode(code);
+    if (country && country.cities.length > 0) {
+      const firstCity = country.cities[0];
+      setParams(prev => ({ ...prev, sunshineHours: firstCity.peakSunHours }));
+    }
+  }, []);
+
+  // --- AI Chat Send ---
+  const handleAiSend = useCallback(async () => {
+    if (!aiInput.trim() || aiLoading) return;
+    const userMsg = aiInput.trim();
+    setAiInput("");
+    setAiMessages(prev => [...prev, { role: "user", content: userMsg }]);
+    setAiLoading(true);
+    try {
+      const systemContext = results
+        ? `Current System: ${params.systemType}, ${results.numberOfPanels} panels (${params.panelWattage}W each), ${results.actualTotalBatteries} batteries, ${results.recommendedInverter}W inverter, Total Cost: $${formatUSD(Math.round(results.totalCost))}, Daily Consumption: ${results.totalDailyConsumptionKWh.toFixed(2)} kWh, Location: ${currentCountry?.nameEn || "Unknown"}`
+        : "No calculation results yet.";
+      const res = await fetch("/api/ai-assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMsg, systemContext, language }),
+      });
+      const data = await res.json();
+      setAiMessages(prev => [...prev, { role: "assistant", content: data.reply || data.error || t("ai.error") }]);
+    } catch {
+      setAiMessages(prev => [...prev, { role: "assistant", content: t("ai.error") }]);
+    }
+    setAiLoading(false);
+  }, [aiInput, aiLoading, results, params, currentCountry, language, t]);
 
   // ============= RENDER =============
   const dir = language === "ar" ? "rtl" : "ltr";
@@ -1162,7 +1270,7 @@ ${language === "ar" ? "التكلفة" : "Cost"}: $${formatUSD(Math.round(result
         {/* ===== TAB NAVIGATION ===== */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <div className="flex justify-center print-hide">
-            <TabsList className={`grid grid-cols-5 w-full max-w-2xl ${darkMode ? "bg-gray-800" : ""}`}>
+            <TabsList className={`grid grid-cols-6 w-full max-w-2xl ${darkMode ? "bg-gray-800" : ""}`}>
               <TabsTrigger value="calculator" className="gap-1 text-xs sm:text-sm">
                 <Calculator className="size-3 sm:size-4" />
                 <span className="hidden sm:inline">{t("tab.calculator")}</span>
@@ -1178,6 +1286,10 @@ ${language === "ar" ? "التكلفة" : "Cost"}: $${formatUSD(Math.round(result
               <TabsTrigger value="bom" className="gap-1 text-xs sm:text-sm">
                 <FileSpreadsheet className="size-3 sm:size-4" />
                 <span className="hidden sm:inline">{t("tab.bom")}</span>
+              </TabsTrigger>
+              <TabsTrigger value="guidelines" className="gap-1 text-xs sm:text-sm">
+                <BookOpen className="size-3 sm:size-4" />
+                <span className="hidden sm:inline">{t("tab.guidelines")}</span>
               </TabsTrigger>
               <TabsTrigger value="save" className="gap-1 text-xs sm:text-sm">
                 <Save className="size-3 sm:size-4" />
@@ -1256,26 +1368,99 @@ ${language === "ar" ? "التكلفة" : "Cost"}: $${formatUSD(Math.round(result
                     <CardTitle className={`text-lg ${cardHeaderText}`}>{t("location.title")}</CardTitle>
                   </div>
                   <CardDescription className={subTextColor}>
-                    {language === "ar" ? "اختر المحافظة لعرض بيانات الإشعاع الشمسي" : "Select governorate to view solar radiation data"}
+                    {language === "ar" ? "اختر الدولة والمدينة لعرض بيانات الإشعاع الشمسي" : "Select country and city to view solar radiation data"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {/* Country Select */}
                     <div className="space-y-2">
-                      <Label className={labelColor}>{t("location.governorate")}</Label>
-                      <Select value={selectedGovernorate} onValueChange={setSelectedGovernorate}>
+                      <Label className={labelColor}>{t("location.country")}</Label>
+                      <Select value={selectedCountry} onValueChange={handleCountryChange}>
                         <SelectTrigger className={inputClass}>
-                          <SelectValue placeholder={t("location.select")} />
+                          <SelectValue placeholder={t("location.selectCountry")} />
                         </SelectTrigger>
                         <SelectContent>
-                          {yemenGovernorates.map((g) => (
-                            <SelectItem key={g.name} value={g.name}>
-                              {language === "ar" ? g.name : g.nameEn}
+                          {getAllCountries().map((c) => (
+                            <SelectItem key={c.code} value={c.code}>
+                              {language === "ar" ? c.nameAr : c.nameEn} ({c.currencySymbol})
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
+
+                    {/* City/Governorate Select or Custom Location */}
+                    {!useCustomLocation ? (
+                      <div className="space-y-2">
+                        <Label className={labelColor}>{t("location.governorate")}</Label>
+                        <Select value={selectedGovernorate} onValueChange={setSelectedGovernorate}>
+                          <SelectTrigger className={inputClass}>
+                            <SelectValue placeholder={t("location.select")} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {currentCities.map((g) => (
+                              <SelectItem key={g.name} value={g.name}>
+                                {language === "ar" ? g.name : g.nameEn}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2">
+                          <Label className={labelColor}>{t("location.latitude")}</Label>
+                          <Input
+                            type="number"
+                            step={0.01}
+                            value={customLatitude || ""}
+                            onChange={(e) => setCustomLatitude(Number(e.target.value) || 0)}
+                            placeholder="15.35"
+                            className={inputClass}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className={labelColor}>{t("location.longitude")}</Label>
+                          <Input
+                            type="number"
+                            step={0.01}
+                            value={customLongitude || ""}
+                            onChange={(e) => setCustomLongitude(Number(e.target.value) || 0)}
+                            placeholder="44.21"
+                            className={inputClass}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* Use My Location / Custom Location toggle */}
+                    <div className="flex flex-col gap-2">
+                      <Button
+                        onClick={handleUseMyLocation}
+                        variant="outline"
+                        className={`gap-2 ${darkMode ? "border-amber-600 text-amber-400 hover:bg-gray-700" : "border-amber-300 text-amber-700 hover:bg-amber-50"}`}
+                        disabled={detectingLocation}
+                      >
+                        <MapPin className="size-4" />
+                        {detectingLocation ? t("location.detecting") : t("location.useMyLocation")}
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setUseCustomLocation(!useCustomLocation);
+                          if (!useCustomLocation) setSelectedGovernorate("");
+                        }}
+                        variant="ghost"
+                        size="sm"
+                        className={`gap-1 text-xs ${darkMode ? "text-gray-400" : "text-gray-500"}`}
+                      >
+                        <Globe className="size-3" />
+                        {useCustomLocation
+                          ? (language === "ar" ? "اختر من القائمة" : "Select from list")
+                          : t("location.customLocation")}
+                      </Button>
+                    </div>
+
                     {governorateData && (
                       <>
                         <div className="space-y-2">
@@ -1315,6 +1500,14 @@ ${language === "ar" ? "التكلفة" : "Cost"}: $${formatUSD(Math.round(result
                       </>
                     )}
                   </div>
+
+                  {/* Custom location hint */}
+                  {useCustomLocation && (
+                    <div className={`mt-3 rounded-lg p-3 text-sm ${darkMode ? "bg-gray-700 text-gray-300" : "bg-blue-50 text-blue-700"}`}>
+                      <Info className="size-4 inline me-2" />
+                      {t("location.customHint")}
+                    </div>
+                  )}
 
                   {/* Monthly radiation bar chart */}
                   {governorateData && (
@@ -1923,6 +2116,9 @@ ${language === "ar" ? "التكلفة" : "Cost"}: $${formatUSD(Math.round(result
                   <Button onClick={printReport} variant="outline" size="lg" className={`gap-2 border-amber-300 text-amber-700 hover:bg-amber-50 ${darkMode ? "border-amber-600 text-amber-400 hover:bg-gray-700" : ""}`}>
                     <Printer className="size-5" />{t("action.print")}
                   </Button>
+                  <Button onClick={() => setActiveTab("guidelines")} variant="outline" size="lg" className={`gap-2 border-purple-300 text-purple-700 hover:bg-purple-50 ${darkMode ? "border-purple-600 text-purple-400 hover:bg-gray-700" : ""}`}>
+                    <BookOpen className="size-5" />{t("guidelines.viewGuidelines")}
+                  </Button>
                 </div>
               </section>
             )}
@@ -2312,7 +2508,109 @@ ${language === "ar" ? "التكلفة" : "Cost"}: $${formatUSD(Math.round(result
             </Card>
           </TabsContent>
 
-          {/* ===== TAB 5: SAVE PROJECTS ===== */}
+          {/* ===== TAB 5: GUIDELINES ===== */}
+          <TabsContent value="guidelines" className="space-y-6">
+            <Card className={`${cardBg} shadow-sm`}>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <div className="flex size-10 items-center justify-center rounded-lg bg-purple-100">
+                    <BookOpen className="size-5 text-purple-600" />
+                  </div>
+                  <CardTitle className={`text-xl ${cardHeaderText}`}>{t("guidelines.title")}</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* System Diagram */}
+                <div>
+                  <h4 className={`font-bold mb-3 ${cardHeaderText} flex items-center gap-2`}>
+                    <Info className="size-4 text-amber-600" />
+                    {t("guidelines.diagram")}
+                  </h4>
+                  <div className={`rounded-xl overflow-hidden border ${darkMode ? "border-gray-600" : "border-amber-200"}`}>
+                    <div dangerouslySetInnerHTML={{ __html: getSystemDiagram(params.systemType, language).svg }} />
+                  </div>
+                </div>
+
+                {/* Installation Guidelines */}
+                <div>
+                  <h4 className={`font-bold mb-3 ${cardHeaderText} flex items-center gap-2`}>
+                    <Wrench className="size-4 text-blue-600" />
+                    {t("guidelines.installation")}
+                  </h4>
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {getInstallationGuidelines(params.systemType, params.systemVoltage, language).map((g) => (
+                      <div
+                        key={g.id}
+                        className={`rounded-lg p-4 border ${
+                          g.priority === "critical"
+                            ? darkMode ? "border-red-800 bg-red-900/20" : "border-red-200 bg-red-50"
+                            : g.priority === "important"
+                              ? darkMode ? "border-amber-800 bg-amber-900/20" : "border-amber-200 bg-amber-50"
+                              : darkMode ? "border-green-800 bg-green-900/20" : "border-green-200 bg-green-50"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <Badge className={`text-xs ${
+                            g.priority === "critical" ? "bg-red-100 text-red-700" :
+                            g.priority === "important" ? "bg-amber-100 text-amber-700" :
+                            "bg-green-100 text-green-700"
+                          }`}>
+                            {t(`guidelines.${g.priority}`)}
+                          </Badge>
+                          <span className={`font-bold text-sm ${cardHeaderText}`}>
+                            {language === "ar" ? g.titleAr : g.titleEn}
+                          </span>
+                        </div>
+                        <p className={`text-sm leading-relaxed ${darkMode ? "text-gray-300" : "text-gray-600"}`}>
+                          {language === "ar" ? g.contentAr : g.contentEn}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Recommendations */}
+                {results && (
+                  <div>
+                    <h4 className={`font-bold mb-3 ${cardHeaderText} flex items-center gap-2`}>
+                      <Lightbulb className="size-4 text-amber-600" />
+                      {t("guidelines.recommendations")}
+                    </h4>
+                    <div className="space-y-4">
+                      {getSystemRecommendations(
+                        {
+                          totalPeakLoad: results.totalPeakLoad,
+                          totalDailyConsumptionKWh: results.totalDailyConsumptionKWh,
+                          numberOfPanels: results.numberOfPanels,
+                          actualTotalBatteries: results.actualTotalBatteries,
+                          recommendedInverter: results.recommendedInverter,
+                          systemType: params.systemType,
+                          batteryType: results.batteryTypeName,
+                          totalCost: results.totalCost,
+                          panelArea: results.panelArea,
+                        },
+                        language
+                      ).map((rec, idx) => (
+                        <div key={idx} className={`rounded-lg p-4 ${darkMode ? "bg-gray-700" : "bg-amber-50"}`}>
+                          <h5 className={`font-bold text-sm mb-2 ${cardHeaderText}`}>{rec.title}</h5>
+                          <ul className="space-y-1">
+                            {rec.items.map((item, i) => (
+                              <li key={i} className={`text-sm flex items-start gap-2 ${darkMode ? "text-gray-300" : "text-gray-600"}`}>
+                                <span className="text-amber-500 mt-1 shrink-0">•</span>
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ===== TAB 6: SAVE PROJECTS ===== */}
           <TabsContent value="save" className="space-y-6">
             {/* Save Current Project */}
             <Card className={`${cardBg} shadow-sm`}>
@@ -2403,6 +2701,112 @@ ${language === "ar" ? "التكلفة" : "Cost"}: $${formatUSD(Math.round(result
           </div>
         )}
       </footer>
+
+      {/* ========== AI ASSISTANT CHAT FAB ========== */}
+      <button
+        onClick={() => setShowAiChat(!showAiChat)}
+        className={`fixed bottom-6 ${language === "ar" ? "left-6" : "right-6"} z-40 flex size-14 items-center justify-center rounded-full shadow-lg transition-all hover:scale-110 print-hide ${
+          showAiChat
+            ? "bg-gray-600 text-white"
+            : "bg-gradient-to-l from-amber-500 to-orange-500 text-white"
+        }`}
+        aria-label={t("ai.title")}
+      >
+        {showAiChat ? <X className="size-6" /> : <MessageCircle className="size-6" />}
+      </button>
+
+      {/* AI Chat Panel */}
+      {showAiChat && (
+        <div className={`fixed bottom-24 ${language === "ar" ? "left-6" : "right-6"} z-40 w-[360px] max-w-[calc(100vw-3rem)] rounded-2xl shadow-2xl border print-hide ${
+          darkMode ? "bg-gray-800 border-gray-600" : "bg-white border-amber-200"
+        }`}>
+          {/* Chat Header */}
+          <div className="flex items-center justify-between p-4 border-b border-amber-200/30">
+            <div className="flex items-center gap-2">
+              <div className="flex size-8 items-center justify-center rounded-full bg-amber-100">
+                <Sparkles className="size-4 text-amber-600" />
+              </div>
+              <span className={`font-bold ${cardHeaderText}`}>{t("ai.title")}</span>
+            </div>
+            <button onClick={() => setShowAiChat(false)} className={`p-1 rounded-lg hover:bg-gray-100 ${darkMode ? "hover:bg-gray-700" : ""}`}>
+              <X className="size-4" />
+            </button>
+          </div>
+
+          {/* Chat Messages */}
+          <div className="h-72 overflow-y-auto p-4 space-y-3">
+            {aiMessages.length === 0 && (
+              <div className={`text-sm ${subTextColor} text-center py-4`}>
+                <Sparkles className="size-8 mx-auto mb-2 text-amber-400" />
+                <p>{t("ai.welcome")}</p>
+              </div>
+            )}
+            {aiMessages.map((msg, idx) => (
+              <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
+                  msg.role === "user"
+                    ? "bg-amber-500 text-white"
+                    : darkMode ? "bg-gray-700 text-gray-200" : "bg-gray-100 text-gray-800"
+                }`}>
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                </div>
+              </div>
+            ))}
+            {aiLoading && (
+              <div className="flex justify-start">
+                <div className={`rounded-xl px-4 py-3 text-sm ${darkMode ? "bg-gray-700 text-gray-300" : "bg-gray-100 text-gray-500"}`}>
+                  <span className="animate-pulse">{t("ai.thinking")}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Suggested Questions */}
+          {aiMessages.length === 0 && (
+            <div className={`px-4 pb-2 border-t ${darkMode ? "border-gray-600" : "border-gray-100"}`}>
+              <p className={`text-xs font-semibold mt-2 mb-1 ${subTextColor}`}>{t("ai.suggestedQuestions")}</p>
+              <div className="flex flex-wrap gap-1">
+                {[
+                  language === "ar" ? "ما أفضل نوع ألواح؟" : "What are the best panel types?",
+                  language === "ar" ? "كيف أحسب الكابلات؟" : "How to size cables?",
+                  language === "ar" ? "فرق ليثيوم وحمض الرصاص؟" : "Lithium vs lead-acid?",
+                ].map((q, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setAiInput(q); }}
+                    className={`text-xs rounded-full px-2 py-1 border transition-colors ${
+                      darkMode ? "border-gray-600 text-gray-300 hover:bg-gray-700" : "border-amber-200 text-amber-700 hover:bg-amber-50"
+                    }`}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Chat Input */}
+          <div className={`flex items-center gap-2 p-3 border-t ${darkMode ? "border-gray-600" : "border-gray-100"}`}>
+            <input
+              type="text"
+              value={aiInput}
+              onChange={(e) => setAiInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleAiSend(); }}
+              placeholder={t("ai.placeholder")}
+              className={`flex-1 rounded-xl px-3 py-2 text-sm border outline-none ${
+                darkMode ? "bg-gray-700 border-gray-600 text-gray-100 placeholder:text-gray-500" : "bg-gray-50 border-gray-200 placeholder:text-gray-400"
+              }`}
+            />
+            <button
+              onClick={handleAiSend}
+              disabled={aiLoading || !aiInput.trim()}
+              className="flex size-9 items-center justify-center rounded-xl bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <Send className="size-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
