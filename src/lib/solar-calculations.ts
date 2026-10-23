@@ -15,10 +15,20 @@ export interface CableCalcResult {
   isDc: boolean;
 }
 
-function findCableForCurrent(current: number, isDc: boolean): CableSpec {
+function findCableForCurrent(current: number, isDc: boolean):CableSpec | null {
   const maxCurrentKey = isDc ? "maxCurrentDC" : "maxCurrentAC";
-  const suitable = cableSpecs.filter(c => c[maxCurrentKey] >= current);
-  return suitable.length > 0 ? suitable[0] : cableSpecs[cableSpecs.length - 1];
+
+  const suitable = cableSpecs
+    .filter(
+      cable =>
+        Number.isFinite(cable.crossSection) &&
+        Number.isFinite(cable[maxCurrentKey]) &&
+        cable.crossSection > 0 &&
+        cable[maxCurrentKey] >= current
+    )
+    .sort((a, b) => a.crossSection - b.crossSection);
+
+  return suitable.length > 0 ? suitable[0] : null;
 }
 
 export function calculateCableSize(
